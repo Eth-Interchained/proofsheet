@@ -84,20 +84,40 @@ jobs:
 
       # A nonzero exit above already fails the build, but assert explicitly so
       # the log states the invariant rather than implying it.
-      - name: Assert no capture is off-size
+      #
+      # Note the floor check. Without it this step passes when the glob
+      # matches nothing -- zero captures examined, zero failures found, exit
+      # 0. A check that cannot fail is worse than no check, because it reads
+      # as evidence. The floor is what makes the green mean something.
+      - name: Assert captures happened and none is off-size
         run: |
           python3 - <<'PY'
           import json, glob, sys
-          bad = []
-          total = 0
-          for f in glob.glob('manifest-*.json'):
+
+          # 33 Apple + 11 Play as of 2026-08-22. Removing a store preset
+          # should require deliberately lowering this number.
+          MIN_EXPECTED = 44
+
+          manifests = sorted(glob.glob('manifest-*.json'))
+          if not manifests:
+              print('FAIL: no manifests were produced at all')
+              sys.exit(1)
+
+          bad, total = [], 0
+          for f in manifests:
               for c in json.load(open(f))['captures']:
                   total += 1
                   if not c['exact']:
                       bad.append((c['device_id'], c['expected'], c['actual']))
-          print(f'{total} captures checked')
+
+          print(f'{len(manifests)} manifests, {total} captures checked')
           for d, e, a in bad:
               print(f'  OFF-SIZE {d}: wanted {e}, got {a}')
+
+          if total < MIN_EXPECTED:
+              print(f'FAIL: only {total} captures, expected >= {MIN_EXPECTED}. '
+                    'A shrinking run silently stops testing things.')
+              sys.exit(1)
           sys.exit(1 if bad else 0)
           PY
 
