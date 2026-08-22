@@ -8,5 +8,20 @@ Cargo.lock.orig
 /proofsheet-out
 /out-*
 /det-*
+/shots
 manifest-*.json
 subject.html
+
+# node binding: dependencies and compiled addons are per-platform build
+# outputs, assembled by CI. index.js / index.d.ts ARE committed so the
+# generated TypeScript surface is reviewable in a diff.
+node_modules/
+*.node
+crates/proofsheet-node/artifacts/
+crates/proofsheet-node/npm/
+
+# python binding build output
+dist/
+*.egg-info/
+__pycache__/
+.venv/

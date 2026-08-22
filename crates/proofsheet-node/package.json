@@ -1,0 +1,60 @@
+{
+  "name": "@interchained/proofsheet",
+  "version": "0.1.0",
+  "description": "Exact-pixel App Store and Google Play screenshots from a real browser, deterministic and local-first.",
+  "keywords": [
+    "screenshot",
+    "app-store",
+    "google-play",
+    "store-screenshots",
+    "chrome-devtools-protocol",
+    "cdp",
+    "headless-chrome",
+    "deterministic",
+    "capacitor",
+    "testing"
+  ],
+  "license": "BUSL-1.1",
+  "author": "Interchained LLC Labs <dev@interchained.org>",
+  "homepage": "https://interchained.org",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/interchained/proofsheet.git",
+    "directory": "crates/proofsheet-node"
+  },
+  "bugs": {
+    "url": "https://github.com/interchained/proofsheet/issues"
+  },
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">= 18"
+  },
+  "napi": {
+    "name": "proofsheet",
+    "triples": {
+      "defaults": true,
+      "additional": [
+        "aarch64-apple-darwin"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "artifacts": "napi artifacts",
+    "prepublishOnly": "napi prepublish -t npm",
+    "universal": "napi universal",
+    "version": "napi version",
+    "test": "node test/smoke.mjs"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.4"
+  },
+  "funding": "https://interchained.org"
+}
