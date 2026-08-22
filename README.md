@@ -1,20 +1,44 @@
-# proofsheet
+<h1 align="center">proofsheet</h1>
 
-**Exact-pixel store screenshots and deterministic browser runs. Local-first, model-agnostic, no cloud.**
+<p align="center">
+  <strong>Exact-pixel App Store and Google Play screenshots from a real browser.</strong><br>
+  Deterministic · local-first · no cloud
+</p>
+
+<p align="center">
+  <a href="https://crates.io/crates/proofsheet"><img alt="crates.io" src="https://img.shields.io/crates/v/proofsheet?style=flat-square&logo=rust&color=B89968&labelColor=0E3B37"></a>
+  <a href="https://www.npmjs.com/package/@interchained/proofsheet"><img alt="npm" src="https://img.shields.io/npm/v/@interchained/proofsheet?style=flat-square&logo=npm&color=B89968&labelColor=0E3B37"></a>
+  <a href="https://pypi.org/project/proofsheet/"><img alt="PyPI" src="https://img.shields.io/pypi/v/proofsheet?style=flat-square&logo=python&logoColor=white&color=B89968&labelColor=0E3B37"></a>
+  <a href="https://github.com/interchained/proofsheet/actions"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/interchained/proofsheet/ci.yml?style=flat-square&label=CI&color=B89968&labelColor=0E3B37"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-BUSL--1.1%20%E2%86%92%20MIT-B89968?style=flat-square&labelColor=0E3B37"></a>
+</p>
+
+<p align="center">
+  <img src="docs/proofsheet.png" alt="Five screenshots of a live web page, each at a different required app-store size, with exact pixel dimensions labelled beneath" width="100%">
+</p>
+
+<p align="center"><sub>
+  Real output. Captured live from <code>en.wikipedia.org</code> in one command, five device sizes, every frame exact.<br>
+  Screenshots show third-party sites purely to demonstrate output — <strong>we are not endorsed by them</strong> and claim no affiliation.
+</sub></p>
+
+```bash
+proofsheet capture --url http://localhost:5173 --store apple --out ./shots
+```
+
+```
+  1/5   apple-iphone-6-9-1320          1320x2868  exact       1.0s  3caaf8e4da1641be
+  2/5   apple-iphone-6-5-1242          1242x2688  exact      844ms  42d1a2a63605f0ae
+  3/5   apple-ipad-13-2064             2064x2752  exact       1.0s  4d23855e4c8f44e3
+  4/5   play-phone-portrait            1080x1920  exact      788ms  11cadea3fcfdffde
+  5/5   apple-watch-s11                  416x496  exact      663ms  4180c0a7a3e5346f
+
+5 exact, 0 off-size, 0 failed in 4.4s
+```
 
 **Source:** [github.com/interchained/proofsheet](https://github.com/interchained/proofsheet)
 
-A *proof sheet* is the contact sheet a photographer reviews before choosing which frames to print. This does both halves of that: it **proves** (deterministic runs, verifiable receipts) and it produces the **sheet** (every screenshot your app store asks for, at exactly the size it asks for).
-
-```
-proofsheet capture --url https://your.app --store apple --out ./shots
-```
-
-```
-apple-iphone-6-9-1320          1320x2868  exact   1487bb3d1bc8ece2
-apple-iphone-6-9-1290          1290x2796  exact   8d4ed8b534ba232e
-apple-ipad-13-2064             2064x2752  exact   137db41f829b6f90
-```
+A *proof sheet* is the contact sheet a photographer reviews before choosing which frames to print. This does both halves: it **proves** (deterministic runs, verifiable output) and it produces the **sheet** (every screenshot your store asks for, at exactly the size it asks for).
 
 ---
 
@@ -108,6 +132,19 @@ v0.1 is the capture path: exact-pixel captures, determinism, device presets, CLI
 Next, in order: hash-chained receipts in [NEDB](https://github.com/Eth-Interchained/nedb) so every image is content-addressed against the state and commit that produced it; the locale × theme matrix; a scoped compositor for device frames and caption bands; then the agent-driven test path — Explorer, Oracle, and a Reducer that shrinks a failing run to its minimal reproducing sequence.
 
 Dependencies are deliberately few: no async runtime, no browser automation framework. The WebSocket and CDP client are about 500 lines of `std`.
+
+## Trademarks and third-party screenshots
+
+Screenshots in this repository and on the package pages show third-party
+websites solely to demonstrate what proofsheet outputs. **We are not endorsed
+by them, sponsored by them, or affiliated with them in any way.** All product
+names, logos, and brands are the property of their respective owners, and are
+used here nominatively — to identify what is pictured, nothing more.
+
+Apple, App Store, iPhone, iPad, Apple Watch and Apple Vision Pro are
+trademarks of Apple Inc. Google Play, Android, Wear OS and Chrome are
+trademarks of Google LLC. proofsheet is an independent tool and is neither
+produced by nor endorsed by Apple or Google.
 
 ## Contact
 

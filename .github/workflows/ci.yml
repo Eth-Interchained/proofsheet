@@ -140,6 +140,56 @@ jobs:
           sys.exit(1 if bad else 0)
           PY
 
+      # Dimensions cannot detect "right pixels, wrong layout": a page served
+      # to a desktop UA can override the layout viewport via meta-viewport, so
+      # every size assertion passes on a desktop screenshot in a phone frame.
+      # This asserts on what the PAGE saw, which is the only thing that can.
+      - name: Device emulation — the page must see the viewport we asked for
+        run: |
+          set -euo pipefail
+          ./target/release/proofsheet capture --url "file://$PWD/subject.html" \
+            --device apple-iphone-6-9-1320 --device apple-ipad-13-2064 \
+            --device play-phone-portrait --device apple-mac-1440 \
+            --out env-out --quiet --json > env.json
+          python3 - <<'PY'
+          import json, sys
+          rep = json.load(open('env.json'))
+          rows = rep['results']
+          if not rows:
+              print('FAIL: no results, so this proves nothing'); sys.exit(1)
+          # id -> minimum touch points expected
+          TOUCH = {
+              'apple-iphone-6-9-1320': 1,
+              'apple-ipad-13-2064': 1,
+              'play-phone-portrait': 1,
+              'apple-mac-1440': 0,
+          }
+          bad = []
+          for r in rows:
+              cap = r.get('capture') or {}
+              env = cap.get('environment')
+              if not env:
+                  bad.append(f"{r['device_id']}: no environment recorded")
+                  continue
+              print(f"  {r['device_id']:<26} vp={env['inner_width']}x{env['inner_height']}"
+                    f" touch={env['touch_points']} honoured={env['viewport_honoured']}")
+              if not env['viewport_honoured']:
+                  bad.append(
+                      f"{r['device_id']}: page overrode the viewport "
+                      f"(saw {env['inner_width']}x{env['inner_height']}) -- "
+                      "device emulation is not taking effect")
+              want = TOUCH.get(r['device_id'])
+              if want is not None:
+                  if want > 0 and env['touch_points'] < want:
+                      bad.append(f"{r['device_id']}: touch_points "
+                                 f"{env['touch_points']}, expected >= {want}")
+                  if want == 0 and env['touch_points'] != 0:
+                      bad.append(f"{r['device_id']}: desktop preset reports touch")
+          for b in bad:
+              print('  FAIL', b)
+          sys.exit(1 if bad else 0)
+          PY
+
       - name: Determinism — same seed twice must be byte-identical
         run: |
           set -euo pipefail

@@ -34,6 +34,123 @@ pub enum Store {
     Web,
 }
 
+/// What kind of device is being emulated.
+///
+/// # Why this exists
+///
+/// Setting the viewport is **not** device emulation. A page served to a
+/// desktop User-Agent can declare `<meta name="viewport" content="width=1120">`,
+/// and Chrome honours that meta tag whenever `mobile` is set — so the layout
+/// viewport becomes 1120 CSS px and the desktop layout is merely *scaled down*
+/// into a phone-sized frame. The image is the right number of pixels and shows
+/// entirely the wrong thing.
+///
+/// Measured against a real site with identical metrics, changing only the
+/// User-Agent and touch points:
+///
+/// | | metrics only | + UA + touch |
+/// |---|---|---|
+/// | `innerWidth` | 1120 | 440 |
+/// | `maxTouchPoints` | 0 | 5 |
+/// | meta viewport | `width=1120` | `width=device-width` |
+///
+/// The server returned different HTML. Emulating the platform is therefore
+/// part of producing a correct screenshot, not a nicety.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Platform {
+    IosPhone,
+    IosTablet,
+    IosWatch,
+    AndroidPhone,
+    AndroidTablet,
+    Macos,
+    Tv,
+    #[default]
+    Web,
+}
+
+impl Platform {
+    /// A representative User-Agent for this platform.
+    ///
+    /// These are deliberately generic-but-plausible rather than pinned to one
+    /// handset: the goal is for content negotiation to pick the right layout,
+    /// not to impersonate a specific device.
+    pub fn user_agent(self) -> Option<&'static str> {
+        Some(match self {
+            Platform::IosPhone => {
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) \
+                 AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 \
+                 Mobile/15E148 Safari/604.1"
+            }
+            Platform::IosTablet => {
+                "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) \
+                 AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 \
+                 Mobile/15E148 Safari/604.1"
+            }
+            Platform::IosWatch => {
+                "Mozilla/5.0 (Apple Watch; CPU WatchOS 10_0 like Mac OS X) \
+                 AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148"
+            }
+            Platform::AndroidPhone => {
+                "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 \
+                 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
+            }
+            Platform::AndroidTablet => {
+                "Mozilla/5.0 (Linux; Android 14; Pixel Tablet) \
+                 AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 \
+                 Safari/537.36"
+            }
+            Platform::Macos => {
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) \
+                 AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 \
+                 Safari/605.1.15"
+            }
+            // Leave the browser's own UA alone for TV and generic web: there
+            // is no single credible string, and a wrong one is worse than none.
+            Platform::Tv | Platform::Web => return None,
+        })
+    }
+
+    /// Platform name for User-Agent Client Hints (`Sec-CH-UA-Platform`).
+    ///
+    /// Modern sites increasingly branch on Client Hints rather than the UA
+    /// string, so overriding one without the other produces a page that is
+    /// half-convinced it is on a phone.
+    pub fn ch_platform(self) -> &'static str {
+        match self {
+            Platform::IosPhone | Platform::IosTablet | Platform::IosWatch => "iOS",
+            Platform::AndroidPhone | Platform::AndroidTablet => "Android",
+            Platform::Macos => "macOS",
+            Platform::Tv | Platform::Web => "Linux",
+        }
+    }
+
+    /// Whether Client Hints should report a mobile device.
+    pub fn ch_mobile(self) -> bool {
+        matches!(
+            self,
+            Platform::IosPhone
+                | Platform::IosWatch
+                | Platform::AndroidPhone
+                | Platform::IosTablet
+                | Platform::AndroidTablet
+        )
+    }
+
+    /// Simultaneous touch points to report, or 0 for a pointer device.
+    pub fn touch_points(self) -> u32 {
+        match self {
+            Platform::IosPhone
+            | Platform::IosTablet
+            | Platform::AndroidPhone
+            | Platform::AndroidTablet => 5,
+            Platform::IosWatch => 1,
+            Platform::Macos | Platform::Tv | Platform::Web => 0,
+        }
+    }
+}
+
 /// How strongly the store asks for this size.
 ///
 /// Free text from the documentation is deliberately narrowed to an enum: an
@@ -105,6 +222,11 @@ pub struct Device {
     /// Emulate a mobile viewport.
     #[serde(default)]
     pub mobile: bool,
+    /// What platform to emulate: User-Agent, Client Hints and touch points.
+    /// Without this, a desktop UA is sent and UA-sniffing sites return their
+    /// desktop layout regardless of the viewport size.
+    #[serde(default)]
+    pub platform: Platform,
     #[serde(default)]
     pub store: Store,
     pub requirement: Requirement,
@@ -357,6 +479,62 @@ mod tests {
         ] {
             let serde_name = serde_json::to_string(&r).unwrap();
             assert_eq!(serde_name, format!("\"{}\"", r.as_str()));
+        }
+    }
+
+    /// The bug this guards: phones were emulated with a desktop User-Agent,
+    /// so UA-sniffing sites served desktop layouts at phone pixel counts.
+    /// Every dimension assertion passed.
+    #[test]
+    fn phone_and_tablet_presets_emulate_a_touch_platform() {
+        for d in builtin() {
+            let p = d.platform;
+            if d.id.contains("iphone") || d.id.starts_with("play-phone") {
+                assert!(
+                    matches!(p, Platform::IosPhone | Platform::AndroidPhone),
+                    "{}: platform is {:?}, not a phone",
+                    d.id,
+                    p
+                );
+                assert!(p.user_agent().is_some(), "{}: no UA override", d.id);
+                assert!(p.touch_points() > 0, "{}: reports no touch", d.id);
+                assert!(p.ch_mobile(), "{}: Client Hints say not mobile", d.id);
+            }
+            if d.id.contains("ipad") {
+                assert_eq!(p, Platform::IosTablet, "{}: not a tablet", d.id);
+                assert!(p.user_agent().unwrap().contains("iPad"), "{}", d.id);
+            }
+        }
+    }
+
+    #[test]
+    fn desktop_platforms_report_no_touch() {
+        assert_eq!(Platform::Macos.touch_points(), 0);
+        assert_eq!(Platform::Web.touch_points(), 0);
+        assert!(!Platform::Macos.ch_mobile());
+    }
+
+    /// A wrong User-Agent is worse than none, so platforms without a credible
+    /// string must return None rather than guessing.
+    #[test]
+    fn platforms_without_a_credible_ua_return_none() {
+        assert!(Platform::Web.user_agent().is_none());
+        assert!(Platform::Tv.user_agent().is_none());
+    }
+
+    #[test]
+    fn every_ua_names_its_platform() {
+        for (p, needle) in [
+            (Platform::IosPhone, "iPhone"),
+            (Platform::IosTablet, "iPad"),
+            (Platform::AndroidPhone, "Android"),
+            (Platform::AndroidTablet, "Android"),
+            (Platform::Macos, "Macintosh"),
+        ] {
+            assert!(
+                p.user_agent().unwrap().contains(needle),
+                "{p:?} UA does not mention {needle}"
+            );
         }
     }
 
