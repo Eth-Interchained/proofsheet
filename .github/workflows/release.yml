@@ -81,6 +81,12 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
     container: ${{ matrix.container }}
+    defaults:
+      run:
+        # Inside a container GitHub falls back to `sh`, where
+        # `set -o pipefail` fails with "Illegal option". Every run step in
+        # this job assumes bash, so say so once here rather than per step.
+        shell: bash
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
