@@ -184,6 +184,7 @@ def main() -> int:
         print(f"  python3 scripts/check_versions.py <version>")
         return 1
     check_readme_line_count()
+    check_readmes()
 
     print(f"\nall manifests agree: {distinct.pop()}")
     return 0
@@ -215,6 +216,52 @@ def check_readme_line_count() -> None:
             f"actual is {actual}. Fix the README."
         )
     print(f"README line count: claims ~{claimed}, actual {actual} — within 5%")
+
+
+
+def check_readmes() -> None:
+    """Every published package must ship a README, and the CLI's must match.
+
+    crates.io rendered a BLANK PAGE for proofsheet and proofsheet-core for
+    eleven releases: neither crate had a README.md or a `readme =` field, so
+    `cargo package` shipped no readme and the registry had nothing to show.
+    npm and PyPI only escaped this because each binding happened to get its
+    own hand-written README.
+
+    The CLI crate's README is a copy of the root one -- it describes exactly
+    the same product -- so it is checked for drift rather than trusted.
+    """
+    root = pathlib.Path(__file__).resolve().parent.parent
+
+    required = {
+        "crates/proofsheet-cli": "crates.io (the CLI)",
+        "crates/proofsheet-core": "crates.io (the library)",
+        "crates/proofsheet-node": "npm",
+        "crates/proofsheet-py": "PyPI",
+    }
+    missing = [
+        f"{d} -> {who}" for d, who in required.items()
+        if not (root / d / "README.md").is_file()
+    ]
+    if missing:
+        raise SystemExit(
+            "these packages would publish with no README:\n  "
+            + "\n  ".join(missing)
+        )
+
+    # The Rust manifests must actually point at it, or cargo omits it.
+    for d in ("crates/proofsheet-cli", "crates/proofsheet-core"):
+        manifest = (root / d / "Cargo.toml").read_text()
+        if not re.search(r'^readme\s*=', manifest, re.M):
+            raise SystemExit(f"{d}/Cargo.toml has no `readme =` field")
+
+    cli = (root / "crates/proofsheet-cli/README.md").read_text()
+    if cli != (root / "README.md").read_text():
+        raise SystemExit(
+            "crates/proofsheet-cli/README.md has drifted from the root "
+            "README.md. Run: cp README.md crates/proofsheet-cli/README.md"
+        )
+    print("READMEs: all four packages ship one, CLI copy in sync")
 
 
 if __name__ == "__main__":
