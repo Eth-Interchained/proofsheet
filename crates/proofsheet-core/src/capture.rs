@@ -38,6 +38,34 @@ impl Default for Stability {
     }
 }
 
+/// What the page actually saw, read back from the page itself.
+///
+/// # Why this is recorded
+///
+/// Dimensions alone cannot tell you whether a screenshot is right. A capture
+/// can be exactly 1320x2868 and still show a desktop layout scaled into a
+/// phone frame, because a page served to a desktop User-Agent may declare
+/// `<meta name="viewport" content="width=1120">` and Chrome honours it.
+/// Every size assertion passes; the image is useless.
+///
+/// So the run records the viewport and touch points the page reported, and
+/// callers can assert on the environment rather than only on the output.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Environment {
+    /// `window.innerWidth` as the page saw it.
+    pub inner_width: u32,
+    /// `window.innerHeight` as the page saw it.
+    pub inner_height: u32,
+    /// `devicePixelRatio` as the page saw it.
+    pub device_pixel_ratio: u32,
+    /// `navigator.maxTouchPoints`.
+    pub touch_points: u32,
+    /// Whether the layout viewport matched what was requested. False means
+    /// the page overrode it, which usually means content negotiation served
+    /// the wrong layout.
+    pub viewport_honoured: bool,
+}
+
 /// The result of one capture.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Capture {
@@ -52,6 +80,9 @@ pub struct Capture {
     /// Whether `actual == expected`. A false here is a hard failure, not a
     /// warning: an off-size asset is rejected at upload.
     pub exact: bool,
+    /// What the page reported about itself. `None` if the probe failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub environment: Option<Environment>,
 }
 
 /// Everything needed to drive one capture.
@@ -127,6 +158,49 @@ pub fn capture(browser: &mut Browser, req: &CaptureRequest<'_>) -> Result<(Captu
         }),
     )?;
 
+    // Metrics alone are NOT device emulation.
+    //
+    // A page served to a desktop User-Agent may declare
+    // `<meta name="viewport" content="width=1120">`, and Chrome honours that
+    // whenever `mobile` is set -- so the layout viewport becomes 1120 CSS px
+    // and the desktop layout is merely scaled into a phone-sized frame. The
+    // pixel count is right and the content is wrong, which is the single most
+    // dangerous failure this tool can have: it looks like a success.
+    //
+    // Measured on a real site, identical metrics, changing only these two
+    // calls: innerWidth 1120 -> 440, maxTouchPoints 0 -> 5, and the server
+    // returned different HTML.
+    let platform = req.device.platform;
+    if let Some(ua) = platform.user_agent() {
+        browser
+            .call(
+                "Emulation.setUserAgentOverride",
+                json!({
+                    "userAgent": ua,
+                    "platform": platform.ch_platform(),
+                    // Client Hints as well as the UA string: modern sites
+                    // branch on Sec-CH-UA-Mobile, and overriding only one
+                    // leaves the page half-convinced it is on a phone.
+                    "userAgentMetadata": {
+                        "platform": platform.ch_platform(),
+                        "platformVersion": "",
+                        "architecture": "",
+                        "model": "",
+                        "mobile": platform.ch_mobile(),
+                        "brands": [],
+                    },
+                }),
+            )
+            .or_else(swallow_unsupported)?;
+    }
+    let touch = platform.touch_points();
+    browser
+        .call(
+            "Emulation.setTouchEmulationEnabled",
+            json!({ "enabled": touch > 0, "maxTouchPoints": touch.max(1) }),
+        )
+        .or_else(swallow_unsupported)?;
+
     // Locale and timezone are set through CDP rather than script because the
     // script-level overrides are trivially detectable and do not affect
     // Intl's internal data.
@@ -159,6 +233,10 @@ pub fn capture(browser: &mut Browser, req: &CaptureRequest<'_>) -> Result<(Captu
         }),
     )?;
 
+    // Read back what the page actually saw, before capturing. This is the
+    // check that catches "right pixels, wrong layout".
+    let environment = probe_environment(browser, vw, vh).ok();
+
     let shot = browser.call(
         "Page.captureScreenshot",
         json!({ "format": "png", "captureBeyondViewport": false }),
@@ -186,9 +264,38 @@ pub fn capture(browser: &mut Browser, req: &CaptureRequest<'_>) -> Result<(Captu
             sha256,
             bytes: bytes.len(),
             exact: actual == expected,
+            environment,
         },
         bytes,
     ))
+}
+
+/// Ask the page what viewport and input capabilities it believes it has.
+fn probe_environment(browser: &mut Browser, want_w: u32, want_h: u32) -> Result<Environment> {
+    let v = browser.call(
+        "Runtime.evaluate",
+        json!({
+            "expression": "({w:innerWidth,h:innerHeight,d:devicePixelRatio,\
+                            t:(navigator.maxTouchPoints||0)})",
+            "returnByValue": true,
+        }),
+    )?;
+    let obj = v
+        .get("result")
+        .and_then(|r| r.get("value"))
+        .ok_or_else(|| Error::Shape("environment probe returned nothing".into()))?;
+    let num = |k: &str| obj.get(k).and_then(|x| x.as_f64()).unwrap_or(0.0) as u32;
+    let inner_width = num("w");
+    let inner_height = num("h");
+    Ok(Environment {
+        inner_width,
+        inner_height,
+        device_pixel_ratio: num("d"),
+        touch_points: num("t"),
+        // A page that overrides the layout viewport via meta-viewport is
+        // telling us it did not accept the device we claimed to be.
+        viewport_honoured: inner_width == want_w && inner_height == want_h,
+    })
 }
 
 /// Some `Emulation.*` overrides are unavailable in older or reduced builds

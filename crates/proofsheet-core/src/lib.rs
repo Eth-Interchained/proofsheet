@@ -38,10 +38,10 @@ pub mod progress;
 pub mod run;
 mod ws;
 
-pub use capture::{capture, Capture, CaptureRequest, Stability};
+pub use capture::{capture, Capture, CaptureRequest, Environment, Stability};
 pub use cdp::{find_browser, Browser, LaunchOptions};
 pub use determinism::Determinism;
-pub use device::{builtin, by_id, for_store, Device, Requirement, Store};
+pub use device::{builtin, by_id, for_store, Device, Platform, Requirement, Store};
 pub use error::{Error, Result};
 pub use progress::{Collector, DeviceEvent, Outcome, Progress, Silent, Summary, Tally};
 pub use run::{run, DeviceResult, RunOptions, RunReport};

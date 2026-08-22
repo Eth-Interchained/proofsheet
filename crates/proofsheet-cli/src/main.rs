@@ -266,6 +266,22 @@ impl Progress for TerminalProgress {
                     c.expected.0, c.expected.1, c.actual.0, c.actual.1
                 );
             }
+            // The image is the right size but the page laid out at a
+            // different width, so this is a picture of the wrong layout.
+            // Almost always a missing meta viewport, occasionally content
+            // negotiation ignoring the emulated device.
+            if let Some(env) = &c.environment {
+                if !env.viewport_honoured && e.device.mobile {
+                    let (vw, vh) = e.device.viewport();
+                    eprintln!(
+                        "        page laid out at {}x{}, not {}x{} -- add \
+                         <meta name=\"viewport\" content=\"width=device-width, \
+                         initial-scale=1\"> or this is a desktop layout at \
+                         phone size",
+                        env.inner_width, env.inner_height, vw, vh
+                    );
+                }
+            }
         }
     }
 

@@ -195,15 +195,58 @@ jobs:
         with:
           pattern: node-*
           path: crates/proofsheet-node/artifacts
-      - name: Assemble platform packages and publish
+      # `napi artifacts` COPIES addons into npm/<triple>/, it does not create
+      # those directories. Without create-npm-dir first, it fails with a bare
+      # ENOENT naming the destination it could not open -- which reads like a
+      # missing build artifact rather than missing scaffolding. Reproduced
+      # locally against this exact artifact layout before changing anything.
+      - name: Scaffold platform packages and place the addons
+        working-directory: crates/proofsheet-node
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          echo "--- downloaded artifacts ---"
+          find artifacts -type f -name '*.node'
+          npx napi create-npm-dir -t .
+          npx napi artifacts --dir artifacts
+          echo "--- assembled ---"
+          find npm -type f -name '*.node'
+
+      # Publishing a package that silently lost a platform is worse than
+      # failing: the gap only surfaces as an install error on a user's
+      # machine, long after the version is immutable.
+      - name: Every expected platform must be present
+        working-directory: crates/proofsheet-node
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, sys
+
+          pkg = json.load(open("package.json"))
+          triples = pkg["napi"]["triples"]
+          expected = set(triples.get("additional", []))
+          if triples.get("defaults"):
+              expected |= {
+                  "x86_64-apple-darwin",
+                  "x86_64-pc-windows-msvc",
+                  "x86_64-unknown-linux-gnu",
+              }
+
+          found = sorted(p.name for p in pathlib.Path("npm").glob("*/*.node"))
+          print(f"expected {len(expected)} platforms, found {len(found)} addons")
+          for f in found:
+              print("  ", f)
+
+          if len(found) < len(expected):
+              print(f"FAIL: {len(expected) - len(found)} platform(s) missing.")
+              sys.exit(1)
+          PY
+
+      - name: Publish
         working-directory: crates/proofsheet-node
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
-          npm install --no-audit --no-fund
-          npx napi artifacts --dir artifacts
-          ls -la npm/*/ || true
           npx napi prepublish -t npm --skip-gh-release
           npm publish --access public
 

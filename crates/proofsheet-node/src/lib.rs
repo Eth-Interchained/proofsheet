@@ -125,6 +125,18 @@ fn build_options(o: &CaptureOptions) -> Result<RunOptions> {
     })
 }
 
+/// What the page reported about itself during a capture.
+#[napi(object)]
+pub struct JsEnvironment {
+    pub inner_width: u32,
+    pub inner_height: u32,
+    pub device_pixel_ratio: u32,
+    pub touch_points: u32,
+    /// False means the page overrode the layout viewport, which usually means
+    /// content negotiation served the wrong layout at the right pixel count.
+    pub viewport_honoured: bool,
+}
+
 /// One image, as JavaScript sees it.
 #[napi(object)]
 pub struct JsCapture {
@@ -139,6 +151,9 @@ pub struct JsCapture {
     pub bytes: u32,
     /// True when actual matches expected exactly.
     pub exact: bool,
+    /// What the page saw. Assert on this as well as the dimensions: a capture
+    /// can be exactly the right size and still show the wrong layout.
+    pub environment: Option<JsEnvironment>,
 }
 
 /// One device's result, successful or not.
@@ -201,6 +216,13 @@ impl From<proofsheet_core::RunReport> for ProofsheetReport {
                         sha256: c.sha256,
                         bytes: c.bytes as u32,
                         exact: c.exact,
+                        environment: c.environment.map(|e| JsEnvironment {
+                            inner_width: e.inner_width,
+                            inner_height: e.inner_height,
+                            device_pixel_ratio: e.device_pixel_ratio,
+                            touch_points: e.touch_points,
+                            viewport_honoured: e.viewport_honoured,
+                        }),
                     }),
                     error: d.error,
                     path: d.path,
