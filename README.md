@@ -2,6 +2,8 @@
 
 **Exact-pixel store screenshots and deterministic browser runs. Local-first, model-agnostic, no cloud.**
 
+**Source:** [github.com/interchained/proofsheet](https://github.com/interchained/proofsheet)
+
 A *proof sheet* is the contact sheet a photographer reviews before choosing which frames to print. This does both halves of that: it **proves** (deterministic runs, verifiable receipts) and it produces the **sheet** (every screenshot your app store asks for, at exactly the size it asks for).
 
 ```
@@ -15,6 +17,38 @@ apple-ipad-13-2064             2064x2752  exact   137db41f829b6f90
 ```
 
 ---
+
+## Point it at anything a browser can open
+
+There is no "local mode" and no "remote mode" — `--url` takes a URL. All four of these are ordinary usage:
+
+```bash
+# a local dev server — the one you usually want
+proofsheet capture --url http://localhost:5173 --store apple --out ./shots
+
+# a static build, no server at all
+proofsheet capture --url file://$PWD/dist/index.html --store apple --out ./shots
+
+# a preview deploy
+proofsheet capture --url https://pr-482.preview.example.com --store apple --out ./shots
+
+# production
+proofsheet capture --url https://your.app --store apple --out ./shots
+```
+
+**Prefer localhost.** Not as a fallback — as the default:
+
+- **You capture before you ship.** The set is built from the branch you're about to release, so it can *gate* the release instead of documenting it afterwards.
+- **CI needs no deploy and no public URL.** Start your dev server, capture, upload. proofsheet's own CI does exactly this.
+- **It's hermetic.** A live domain drags in CDN state, cookie banners, A/B buckets and analytics — all of which move between runs and destroy byte-identical determinism. Localhost doesn't.
+- **It's faster.** Measured on the same page: `366ms` local vs `1.6s` over the network. Across a 44-device matrix that's the difference between about 25 seconds and a couple of minutes.
+- **It works on apps that aren't public yet**, or are behind auth.
+
+Two things worth knowing before they bite you:
+
+**`file://` is not a real origin.** It's the fastest path and it's fine for genuinely static pages, but `fetch`, service workers, ES module imports and anything CORS-sensitive behave differently there than they will in production. If your app does real work, run the dev server and point at `localhost`.
+
+**Inside Docker, `localhost` means the container.** If proofsheet runs in a container while your dev server runs on the host, use `host.docker.internal` or `--network host`.
 
 ## Why
 
@@ -75,8 +109,17 @@ Next, in order: hash-chained receipts in [NEDB](https://github.com/Eth-Interchai
 
 Dependencies are deliberately few: no async runtime, no browser automation framework. The WebSocket and CDP client are about 500 lines of `std`.
 
+## Contact
+
+- Web — [interchained.org](https://interchained.org)
+- Source — [github.com/interchained/proofsheet](https://github.com/interchained/proofsheet)
+- Issues — [github.com/interchained/proofsheet/issues](https://github.com/interchained/proofsheet/issues)
+- Email — [dev@interchained.org](mailto:dev@interchained.org)
+
 ## License
 
 [BUSL-1.1](LICENSE), converting to **MIT** on 2030-08-22. Production use is granted; offering proofsheet itself as a hosted service is not.
+
+Property made in part by **Interchained LLC Labs**.
 
 © 2026 Interchained LLC

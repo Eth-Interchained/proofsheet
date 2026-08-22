@@ -274,6 +274,18 @@ impl Progress for TerminalProgress {
             return;
         }
         self.clear_line();
+        let total = summary.total();
+        if self.tty && total > 0 {
+            // Without this the bar's last drawn frame is the one from before
+            // the final device, so a finished run visually reads as
+            // unfinished. Draw the completed state explicitly.
+            eprintln!(
+                "[{}] {}/{}",
+                progress::bar(total, total, self.width),
+                total,
+                total
+            );
+        }
         eprintln!(
             "\n{} exact, {} off-size, {} failed in {}",
             summary.exact,

@@ -1,0 +1,20 @@
+[package]
+name = "proofsheet-py"
+description = "Python binding for proofsheet."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+name = "_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+proofsheet-core.workspace = true
+serde_json.workspace = true
+pyo3 = { version = "0.23", features = ["extension-module", "abi3-py38"] }

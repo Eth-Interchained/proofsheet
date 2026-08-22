@@ -1,0 +1,45 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "proofsheet"
+version = "0.1.0"
+description = "Exact-pixel App Store and Google Play screenshots from a real browser, deterministic and local-first."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "BUSL-1.1" }
+authors = [{ name = "Interchained LLC Labs", email = "dev@interchained.org" }]
+keywords = [
+    "screenshot",
+    "app-store",
+    "google-play",
+    "store-screenshots",
+    "chrome-devtools-protocol",
+    "headless-chrome",
+    "deterministic",
+    "testing",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Multimedia :: Graphics :: Capture :: Screen Capture",
+]
+
+[project.urls]
+Homepage = "https://interchained.org"
+Source = "https://github.com/interchained/proofsheet"
+Repository = "https://github.com/interchained/proofsheet"
+Issues = "https://github.com/interchained/proofsheet/issues"
+
+[tool.maturin]
+# Mixed layout: the compiled module is proofsheet._native, and the public
+# Python API wraps it. Writing the ergonomic surface in Python keeps PyO3
+# doing the one job it is good at -- crossing the boundary.
+python-source = "python"
+module-name = "proofsheet._native"
+manifest-path = "Cargo.toml"
+features = ["pyo3/extension-module"]

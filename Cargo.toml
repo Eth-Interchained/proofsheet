@@ -1,15 +1,20 @@
 [workspace]
 resolver = "2"
-members = ["crates/proofsheet-core", "crates/proofsheet-cli"]
+members = [
+    "crates/proofsheet-core",
+    "crates/proofsheet-cli",
+    "crates/proofsheet-node",
+    "crates/proofsheet-py",
+]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.82"
 license = "BUSL-1.1"
-repository = "https://github.com/Eth-Interchained/proofsheet"
-homepage = "https://github.com/Eth-Interchained/proofsheet"
-authors = ["Interchained LLC <founders@vibecode-101.com>"]
+repository = "https://github.com/interchained/proofsheet"
+homepage = "https://interchained.org"
+authors = ["Interchained LLC Labs <dev@interchained.org>"]
 
 [workspace.dependencies]
 proofsheet-core = { path = "crates/proofsheet-core", version = "0.1.0" }
