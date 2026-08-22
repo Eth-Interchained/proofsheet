@@ -1,0 +1,19 @@
+[package]
+name = "proofsheet"
+description = "Local-first browser harness: exact-pixel store screenshots and agent-driven tests with verifiable receipts."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "proofsheet"
+path = "src/main.rs"
+
+[dependencies]
+proofsheet-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
