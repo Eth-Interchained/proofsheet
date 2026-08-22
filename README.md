@@ -231,7 +231,7 @@ and Python bindings — all published and version-locked to one tag.
 
 Next, in order: hash-chained receipts in [NEDB](https://github.com/Eth-Interchained/nedb) so every image is content-addressed against the state and commit that produced it; the locale × theme matrix; a scoped compositor for device frames and caption bands; then the agent-driven test path — Explorer, Oracle, and a Reducer that shrinks a failing run to its minimal reproducing sequence.
 
-Dependencies are deliberately few: no async runtime, no browser automation framework, no HTTP client. The hand-rolled WebSocket and CDP client are about 730 lines of `std`.
+Dependencies are deliberately few: no async runtime, no browser automation framework, no HTTP client. The hand-rolled WebSocket and CDP client are about 770 lines of `std`.
 
 ## Trademarks and third-party screenshots
 

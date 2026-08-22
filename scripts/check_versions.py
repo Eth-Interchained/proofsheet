@@ -183,8 +183,38 @@ def main() -> int:
         print("Every manifest must carry the same version. Run:")
         print(f"  python3 scripts/check_versions.py <version>")
         return 1
+    check_readme_line_count()
+
     print(f"\nall manifests agree: {distinct.pop()}")
     return 0
+
+
+def check_readme_line_count() -> None:
+    """The README quotes a line count for the hand-rolled client.
+
+    It has been wrong twice: first "about 500" when it was 732, then "about
+    730" written in the same commit that added 41 lines to ws.rs. A number a
+    human maintains by feel is a number that drifts, so measure it.
+    """
+    import re
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    actual = sum(
+        len((root / "crates/proofsheet-core/src" / f).read_text().splitlines())
+        for f in ("ws.rs", "cdp.rs")
+    )
+    text = (root / "README.md").read_text()
+    m = re.search(r"about (\d+) lines of `std`", text)
+    if not m:
+        raise SystemExit("README no longer states a line count; update this check")
+    claimed = int(m.group(1))
+    # Round numbers are fine; being off by more than 5% is not.
+    if abs(claimed - actual) > actual * 0.05:
+        raise SystemExit(
+            f"README claims ~{claimed} lines of std for ws.rs + cdp.rs, "
+            f"actual is {actual}. Fix the README."
+        )
+    print(f"README line count: claims ~{claimed}, actual {actual} — within 5%")
 
 
 if __name__ == "__main__":
