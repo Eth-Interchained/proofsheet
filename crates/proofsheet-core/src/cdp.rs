@@ -358,7 +358,11 @@ mod env_tests {
         let real = Some(" /usr/bin/chrome ".to_string())
             .filter(|v: &String| !v.trim().is_empty())
             .map(|v| v.trim().to_string());
-        assert_eq!(real.as_deref(), Some("/usr/bin/chrome"), "real path survives, trimmed");
+        assert_eq!(
+            real.as_deref(),
+            Some("/usr/bin/chrome"),
+            "real path survives, trimmed"
+        );
     }
 }
 

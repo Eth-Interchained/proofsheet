@@ -337,38 +337,58 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       # The examples are documentation that executes, so they rot exactly
-      # like documentation -- silently, and only for new users. They build
-      # against the PUBLISHED packages, so this also catches a release that
-      # shipped an API the examples relied on.
-      - name: Rust example compiles against the published crate
+      # like documentation -- silently, and only for new users.
+      #
+      # They build against THIS TREE, not the published packages. The first
+      # version of this job installed from the registries and asserted the
+      # API was present, which cannot pass on the commit that introduces a
+      # new API: the registry only has it after Release publishes, and
+      # Release runs after CI. A check that can only pass once the thing it
+      # gates has already shipped is not a gate. Verifying published
+      # artifacts is the release workflow's job, and it does it there.
+      - name: Rust example compiles against this tree
         working-directory: examples/rust
-        run: cargo build --release
-
-      - name: Node example loads and its API exists
-        working-directory: examples/node
         run: |
           set -euo pipefail
+          cat >> Cargo.toml <<'PATCH'
+
+          [patch.crates-io]
+          proofsheet-core = { path = "../../crates/proofsheet-core" }
+          PATCH
+          cargo build --release
+
+      - name: Node example runs against this tree
+        run: |
+          set -euo pipefail
+          cd crates/proofsheet-node
           npm install --no-audit --no-fund
+          npx napi build --platform --release
+          cd ../../examples/node
+          npm install ../../crates/proofsheet-node --no-audit --no-fund
+          node --check shots.js
           node -e "
             const p = require('@interchained/proofsheet');
             for (const fn of ['capture', 'devices', 'version', 'findBrowser']) {
-              if (typeof p[fn] !== 'function') {
-                throw new Error(fn + ' missing from the published package');
-              }
+              if (typeof p[fn] !== 'function') throw new Error(fn + ' missing');
             }
             console.log('  node API present, proofsheet', p.version());
           "
-          node --check shots.js
 
-      - name: Python example parses and its API exists
-        working-directory: examples/python
+      - name: Python example runs against this tree
         run: |
           set -euo pipefail
-          pip install -r requirements.txt
+          pip install maturin
+          maturin build --release --out /tmp/wheel \
+            --manifest-path crates/proofsheet-py/Cargo.toml
+          pip install /tmp/wheel/*.whl
+          cd examples/python
+          python -m py_compile shots.py
           python -c "
           import proofsheet
           for name in ('capture', 'devices', 'find_browser', 'Environment'):
-              assert hasattr(proofsheet, name), f'{name} missing from the published package'
+              assert hasattr(proofsheet, name), f'{name} missing'
+          import dataclasses
+          fields = {f.name for f in dataclasses.fields(proofsheet.Capture)}
+          assert 'environment' in fields, 'Capture dropped environment again'
           print('  python API present, proofsheet', proofsheet.__version__)
           "
-          python -m py_compile shots.py

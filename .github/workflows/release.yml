@@ -57,9 +57,30 @@ jobs:
           fi
           echo "version=$MANIFEST" >> "$GITHUB_OUTPUT"
 
+  # A tag pushed at a red tree published anyway: Release never consulted CI.
+  # The two workflows are independent, both fire on the same sha, and nothing
+  # connected them -- so `git tag` was enough to ship code that fails fmt.
+  #
+  # Re-running the checks here rather than querying CI's status keeps Release
+  # self-contained: no cross-workflow polling, no race on which finishes
+  # first, and a manual workflow_dispatch is gated identically.
+  verify:
+    name: the tree must be green before anything is published
+    needs: guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - run: cargo test --workspace --all-features
+
   build-node:
     name: node ${{ matrix.target }}
-    needs: guard
+    needs: [guard, verify]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -136,7 +157,7 @@ jobs:
 
   build-python:
     name: wheel ${{ matrix.target }}
-    needs: guard
+    needs: [guard, verify]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -171,7 +192,7 @@ jobs:
 
   build-sdist:
     name: python sdist
-    needs: guard
+    needs: [guard, verify]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
