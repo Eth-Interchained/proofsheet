@@ -124,13 +124,17 @@ Pass `presets: 'my-devices.json'` to use your own table. Stores change these num
 You need a Chromium. The quickest route is proofsheet's own installer, which
 fetches a pinned [Chrome for Testing](https://googlechromelabs.github.io/chrome-for-testing/) build:
 
+This package is a **library** — it ships no executable, so there is no
+`npx proofsheet`. The installer lives in the CLI:
+
 ```bash
-npx proofsheet install-browser
+cargo install proofsheet && proofsheet install-browser
 ```
 
-It installs to `~/.proofsheet/browser` (`PROOFSHEET_HOME` overrides) and
-`findBrowser()` picks it up with no configuration. Otherwise set
-`PROOFSHEET_CHROME` or pass `browser`.
+It fetches a pinned Chrome for Testing build into `~/.proofsheet/browser`
+(`PROOFSHEET_HOME` overrides), and `findBrowser()` picks it up with no
+configuration. If you would rather not install the CLI, set
+`PROOFSHEET_CHROME` to any Chromium, or pass `browser`.
 
 ```js
 import { findBrowser } from '@interchained/proofsheet'

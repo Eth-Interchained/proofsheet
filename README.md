@@ -23,24 +23,73 @@
 </sub></p>
 
 ```bash
-proofsheet capture --url http://localhost:5173 --store apple --out ./shots
+proofsheet capture --url https://en.wikipedia.org \
+  --device apple-iphone-6-9-1320 --device apple-iphone-6-5-1242 \
+  --device apple-ipad-13-2064   --device play-phone-portrait \
+  --device apple-watch-s11      --out ./shots
 ```
 
 ```
-  1/5   apple-iphone-6-9-1320          1320x2868  exact       1.0s  3caaf8e4da1641be
-  2/5   apple-iphone-6-5-1242          1242x2688  exact      844ms  42d1a2a63605f0ae
-  3/5   apple-ipad-13-2064             2064x2752  exact       1.0s  4d23855e4c8f44e3
-  4/5   play-phone-portrait            1080x1920  exact      788ms  11cadea3fcfdffde
-  5/5   apple-watch-s11                  416x496  exact      663ms  4180c0a7a3e5346f
+capturing https://en.wikipedia.org
+5 devices
+    1/5   apple-iphone-6-9-1320          1320x2868  exact       709ms  a5bfcf2a7aeccfea
+    2/5   apple-iphone-6-5-1242          1242x2688  exact       648ms  d511dd67d8f48f1d
+    3/5   apple-ipad-13-2064             2064x2752  exact       856ms  0cac166bad99fe3e
+    4/5   play-phone-portrait            1080x1920  exact       592ms  a375526c0b4b568e
+    5/5   apple-watch-s11                  416x496  exact       482ms  6abc0825ad03b5ae
+        page laid out at 320x382, not 208x248 -- add <meta name="viewport" content="width=device-width, initial-scale=1"> or this is a desktop layout at phone size
 
-5 exact, 0 off-size, 0 failed in 4.4s
+5 exact, 0 off-size, 0 failed in 3.3s
+5 image(s) -> ./shots
 ```
+
+That warning on the last line is not noise, and it is the most useful thing
+here. See [Right size, wrong page](#right-size-wrong-page).
 
 **Source:** [github.com/interchained/proofsheet](https://github.com/interchained/proofsheet)
 
 A *proof sheet* is the contact sheet a photographer reviews before choosing which frames to print. This does both halves: it **proves** (deterministic runs, verifiable output) and it produces the **sheet** (every screenshot your store asks for, at exactly the size it asks for).
 
 ---
+
+## Install
+
+```bash
+cargo install proofsheet            # the CLI
+npm  i @interchained/proofsheet     # Node library
+pip  install proofsheet             # Python library
+```
+
+All three are published and version-locked to the same release. **Only
+crates.io ships the `proofsheet` command** — npm and PyPI ship language
+bindings, not an executable, so there is no `npx proofsheet` and no
+`proofsheet` on your `PATH` after `pip install`. Use the library API from
+those, or install the CLI alongside them.
+
+Then get a browser. proofsheet fetches a pinned
+[Chrome for Testing](https://googlechromelabs.github.io/chrome-for-testing/)
+build:
+
+```bash
+proofsheet install-browser                                # current Stable
+proofsheet install-browser --version-tag 152.0.7977.54    # or pin one
+```
+
+It lands under `~/.proofsheet/browser` (`PROOFSHEET_HOME` overrides) and every
+surface — CLI, Node, Python — finds it automatically with no configuration. To
+use a browser you already have, point `PROOFSHEET_CHROME` at it instead.
+
+A pinned build matters more than it sounds: desktop Chrome auto-updates
+underneath you, so the browser producing your screenshots changes without you
+asking and the images churn.
+
+Three commands from nothing to a store-ready set:
+
+```bash
+cargo install proofsheet
+proofsheet install-browser
+proofsheet capture --url http://localhost:5173 --store apple --out ./shots
+```
 
 ## Point it at anything a browser can open
 
@@ -88,6 +137,38 @@ Two decisions, both structural rather than careful:
 
 **Metrics are applied before layout.** `Emulation.setDeviceMetricsOverride` runs before navigation, so first layout already happens at the target size, and `Page.captureScreenshot` emits exactly those pixels. Nothing is resized, cropped, or padded after the fact. The image is born the right size.
 
+## Right size, wrong page
+
+Getting the pixel count right is the easy half. A screenshot can be exactly
+`1320x2868` and still show completely the wrong thing.
+
+If a site serves its desktop layout and declares
+`<meta name="viewport" content="width=1120">`, Chrome honours that tag, lays
+the page out at 1120 CSS pixels, and scales the desktop design down into a
+phone-sized frame. Every dimension check passes. What you uploaded is a
+shrunken desktop site.
+
+Setting the viewport is therefore **not** device emulation. proofsheet also
+overrides the User-Agent, User-Agent Client Hints, and touch points, then
+*measures what the page actually did*. Same metrics, changing only those:
+
+| | metrics only | + UA + touch |
+|---|---|---|
+| `innerWidth` | 1120 | 440 |
+| `maxTouchPoints` | 0 | 5 |
+| meta viewport | `width=1120` | `width=device-width` |
+
+The server returned different HTML. Every capture records what the page
+reported, so you can assert on it rather than trusting the file size:
+
+```js
+capture.environment.viewportHonoured   // Node
+capture.environment.viewport_honoured  # Python / Rust
+```
+
+The CLI prints a warning when a page overrides the layout viewport, as in the
+example at the top of this page.
+
 ## What makes runs deterministic
 
 A preamble is injected via `Page.addScriptToEvaluateOnNewDocument`, so it runs before any page script on every document. It replaces `Math.random` with a seeded PRNG, freezes `Date.now` and `performance.now`, drives `requestAnimationFrame` on a fixed virtual step, and routes `crypto.getRandomValues` through the seeded stream. Locale and timezone are pinned through CDP rather than script, because the script-level overrides don't reach Intl's internal data.
@@ -96,42 +177,45 @@ Verified in both directions: same seed produces byte-identical PNGs across indep
 
 ## Device presets
 
-46 presets, every store size read from official documentation on 2026-08-22:
+46 presets — 33 Apple, 11 Google Play, 2 web — every store size read from official documentation on 2026-08-22:
 
 - **Apple** — iPhone 6.9″/6.5″/6.3″/6.1″/5.5″/4.7″, iPad 13″/11″/10.5″/9.7″, Mac, Apple TV, Vision Pro, Apple Watch
   <br><sub>[App Store Connect Help → Screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/screenshot-specifications/)</sub>
 - **Google Play** — feature graphic, phone, 7″/10″ tablet, Wear OS, Automotive, TV banner and screenshot
   <br><sub>[Play Console Help → Add preview assets](https://support.google.com/googleplay/android-developer/answer/9866151)</sub>
 
-Presets are **data**, in `presets/devices.json`. Stores change these numbers without warning, and a requirement that can only be corrected by cutting a release is a requirement that will be wrong. Point `--presets` at your own file to override. Every entry carries the URL it came from, and the test suite refuses to let an entry claim `verified` without one.
+Presets are **data**, in `crates/proofsheet-core/presets/devices.json`. Stores change these numbers without warning, and a requirement that can only be corrected by cutting a release is a requirement that will be wrong. Point `--presets` at your own file to override. Every entry carries the URL it came from, and the test suite refuses to let an entry claim `verified` without one.
 
 ```
 proofsheet devices --store apple --mandatory
 ```
 
-## Install
+## From Node and Python
 
-```
-cargo install proofsheet          # crates.io
-npm  i -g @interchained/proofsheet # npm      (planned)
-pip  install proofsheet            # PyPI     (planned)
-```
+Same engine, same bytes. A CI check asserts the CLI, Node and Python produce
+byte-identical output for the same input.
 
-You also need a Chromium. proofsheet will fetch a pinned
-[Chrome for Testing](https://googlechromelabs.github.io/chrome-for-testing/) build for you:
+```js
+const { capture } = require('@interchained/proofsheet');
 
-```bash
-proofsheet install-browser              # current Stable
-proofsheet install-browser --version-tag 152.0.7977.54   # or pin one
+const report = await capture({ url: 'http://localhost:5173', store: 'apple', outDir: './shots' });
+if (!report.ok) throw new Error(`${report.offSize} off-size, ${report.failed} failed`);
 ```
 
-It lands under `~/.proofsheet/browser` (`PROOFSHEET_HOME` overrides) and every
-surface — CLI, Node, Python — finds it automatically with no configuration.
-To use a browser you already have, point `PROOFSHEET_CHROME` at it instead.
+```python
+import proofsheet
 
-A pinned build matters more than it sounds: desktop Chrome auto-updates
-underneath you, so the browser producing your screenshots changes without you
-asking and the images churn.
+report = proofsheet.capture(url="http://localhost:5173", store="apple", out_dir="./shots")
+if not report.ok:
+    raise SystemExit(report.summary())
+```
+
+Branch on `ok`, not on `failed == 0` — the latter is also true for a run that
+captured nothing at all.
+
+Complete, runnable versions of the same program in all three languages are in
+**[examples/](examples)**: both stores, one folder each, non-zero exit on any
+problem. They are built in CI against the tree, so they cannot silently rot.
 
 ## Scope, honestly
 
@@ -141,11 +225,13 @@ asking and the images churn.
 
 ## Status
 
-v0.1 is the capture path: exact-pixel captures, determinism, device presets, CLI.
+v0.1 is the capture path: exact-pixel captures, determinism, device emulation
+with wrong-layout detection, 46 presets, browser provisioning, a CLI, and Node
+and Python bindings — all published and version-locked to one tag.
 
 Next, in order: hash-chained receipts in [NEDB](https://github.com/Eth-Interchained/nedb) so every image is content-addressed against the state and commit that produced it; the locale × theme matrix; a scoped compositor for device frames and caption bands; then the agent-driven test path — Explorer, Oracle, and a Reducer that shrinks a failing run to its minimal reproducing sequence.
 
-Dependencies are deliberately few: no async runtime, no browser automation framework. The WebSocket and CDP client are about 500 lines of `std`.
+Dependencies are deliberately few: no async runtime, no browser automation framework, no HTTP client. The hand-rolled WebSocket and CDP client are about 730 lines of `std`.
 
 ## Trademarks and third-party screenshots
 

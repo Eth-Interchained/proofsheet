@@ -372,7 +372,11 @@ fn cmd_capture(args: &Args) -> Result<bool, String> {
             serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?
         );
     } else {
-        println!("{} captures -> {}", report.results.len(), out_dir.display());
+        // results.len() counts attempts, not images. Printing it as
+        // "N captures" told you 5 captures had been written when 2 had
+        // failed and only 3 files existed.
+        let written = report.results.iter().filter(|r| r.path.is_some()).count();
+        println!("{written} image(s) -> {}", out_dir.display());
         if report.off_size > 0 {
             println!("SOME CAPTURES ARE THE WRONG SIZE — do not upload these");
         }

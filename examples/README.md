@@ -70,10 +70,11 @@ diffable — you can commit them and review changes as a diff.
 
 ## Browser
 
-No browser on the machine? proofsheet fetches a pinned one:
+No browser on the machine? The CLI fetches a pinned one (the Node and Python
+packages are libraries and ship no executable):
 
 ```
-proofsheet install-browser
+cargo install proofsheet && proofsheet install-browser
 ```
 
 It lands in `~/.proofsheet/browser` (`PROOFSHEET_HOME` overrides) and all three

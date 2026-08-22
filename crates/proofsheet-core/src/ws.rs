@@ -5,9 +5,12 @@
 //! needs is small (text frames, no extensions, no TLS), and a tool people
 //! install should not drag an async runtime behind it.
 
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::net::TcpStream;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+/// How long a single `read` may block before the loop re-checks the budget.
+const POLL_SLICE: Duration = Duration::from_secs(1);
 
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine as _;
@@ -70,6 +73,12 @@ fn split_url(url: &str) -> Result<(String, u16, String)> {
 pub struct Ws {
     stream: TcpStream,
     buf: Vec<u8>,
+    /// How long the browser may stay silent before we call it dead.
+    ///
+    /// This is an IDLE budget, not a per-read deadline. The socket's own
+    /// timeout is a short poll slice so a stalled read can be retried; only
+    /// a full budget with no bytes at all is a failure.
+    idle: Duration,
 }
 
 impl Ws {
@@ -77,7 +86,9 @@ impl Ws {
     pub fn connect(url: &str, timeout: Duration) -> Result<Ws> {
         let (host, port, path) = split_url(url)?;
         let stream = TcpStream::connect((host.as_str(), port))?;
-        stream.set_read_timeout(Some(timeout))?;
+        // A short slice, not the whole budget: read() must be able to return
+        // so the loop in fill() can decide whether to keep waiting.
+        stream.set_read_timeout(Some(POLL_SLICE.min(timeout)))?;
         stream.set_write_timeout(Some(timeout))?;
         stream.set_nodelay(true)?;
 
@@ -93,6 +104,7 @@ impl Ws {
         let mut ws = Ws {
             stream,
             buf: Vec::with_capacity(8192),
+            idle: timeout,
         };
         ws.stream.write_all(req.as_bytes())?;
         ws.stream.flush()?;
@@ -130,13 +142,42 @@ impl Ws {
     }
 
     fn fill(&mut self) -> Result<()> {
+        // A read timeout surfaces as WouldBlock/TimedOut, and propagating
+        // that with `?` treated "no bytes yet" as "the capture failed".
+        // Under load -- a busy machine, a heavy page -- Chrome would go quiet
+        // for longer than one slice and the run died with
+        //
+        //     io: Resource temporarily unavailable (os error 11)
+        //
+        // which tells the user nothing and was not even true: retrying the
+        // same device immediately succeeded in under a second.
+        //
+        // Now a slice that expires is just a slice; only a full idle budget
+        // with no bytes at all is a failure, and it says so in words.
+        let deadline = Instant::now() + self.idle;
         let mut chunk = [0u8; 65536];
-        let n = self.stream.read(&mut chunk)?;
-        if n == 0 {
-            return Err(Error::Protocol("connection closed by peer".into()));
+        loop {
+            match self.stream.read(&mut chunk) {
+                Ok(0) => return Err(Error::Protocol("connection closed by peer".into())),
+                Ok(n) => {
+                    self.buf.extend_from_slice(&chunk[..n]);
+                    return Ok(());
+                }
+                // EINTR is never a real failure; a signal arrived mid-read.
+                Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+                Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+                    if Instant::now() >= deadline {
+                        return Err(Error::Protocol(format!(
+                            "the browser sent nothing for {}s. It is usually \
+                             overloaded rather than broken -- try fewer \
+                             devices at once, or give the machine more memory.",
+                            self.idle.as_secs()
+                        )));
+                    }
+                }
+                Err(e) => return Err(e.into()),
+            }
         }
-        self.buf.extend_from_slice(&chunk[..n]);
-        Ok(())
     }
 
     fn need(&mut self, n: usize) -> Result<()> {

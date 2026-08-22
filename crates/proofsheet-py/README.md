@@ -152,13 +152,17 @@ if report.ok: ...
 You need a Chromium. The quickest route is proofsheet's own installer, which
 fetches a pinned [Chrome for Testing](https://googlechromelabs.github.io/chrome-for-testing/) build:
 
+This package is a **library** — `pip install proofsheet` adds no
+`proofsheet` command to your `PATH`. The installer lives in the CLI:
+
 ```bash
-proofsheet install-browser
+cargo install proofsheet && proofsheet install-browser
 ```
 
-It installs to `~/.proofsheet/browser` (`PROOFSHEET_HOME` overrides) and
-`find_browser()` picks it up with no configuration. Otherwise set
-`PROOFSHEET_CHROME` or pass `browser=`.
+It fetches a pinned Chrome for Testing build into `~/.proofsheet/browser`
+(`PROOFSHEET_HOME` overrides), and `find_browser()` picks it up with no
+configuration. If you would rather not install the CLI, set
+`PROOFSHEET_CHROME` to any Chromium, or pass `browser=`.
 
 ```python
 proofsheet.find_browser()   # raises with instructions if none found
