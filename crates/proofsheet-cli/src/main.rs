@@ -390,7 +390,10 @@ fn main() -> ExitCode {
     let outcome = match args.command.as_str() {
         "devices" => cmd_devices(&args).map(|_| true),
         "capture" => cmd_capture(&args),
-        "version" => {
+        // --version and -V are what people actually type. Accepting only the
+        // bare subcommand meant `proofsheet --version` answered
+        // "unknown command: --version", which reads like the binary is broken.
+        "version" | "--version" | "-V" => {
             println!("proofsheet {VERSION}");
             Ok(true)
         }

@@ -207,7 +207,15 @@ impl Requirement {
 
 impl std::fmt::Display for Requirement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
+        // f.pad, NOT f.write_str. write_str goes straight to the underlying
+        // buffer and silently discards the format spec, so `{:<16}` on a
+        // Requirement produced no padding at all and the CLI's table ran its
+        // REQUIREMENT and VERIFIED columns together as "requiredyes".
+        //
+        // This is a library bug, not a CLI one: it affected every caller who
+        // formatted a Requirement with a width. pad() honours width, fill,
+        // alignment and precision.
+        f.pad(self.as_str())
     }
 }
 
@@ -336,6 +344,27 @@ pub fn for_store(devices: &[Device], store: Store) -> Vec<Device> {
 
 #[cfg(test)]
 mod tests {
+    /// Display must honour the format spec. Written because it did not:
+    /// `f.write_str` bypasses padding entirely, which is invisible until a
+    /// column-aligned table collides.
+    #[test]
+    fn requirement_display_honours_width_and_alignment() {
+        let r = Requirement::Required;
+        assert_eq!(format!("{r}"), "required");
+        assert_eq!(format!("{r:<16}"), "required        ");
+        assert_eq!(format!("{r:>10}"), "  required");
+        assert_eq!(format!("{r:*^12}"), "**required**");
+    }
+
+    /// The CLI table's real failure mode, reproduced at the library level:
+    /// a padded requirement followed immediately by another column.
+    #[test]
+    fn padded_requirement_does_not_collide_with_next_column() {
+        let line = format!("{:<16}{}", Requirement::Required, "yes");
+        assert!(!line.contains("requiredyes"), "columns collided: {line:?}");
+        assert_eq!(line, "required        yes");
+    }
+
     use super::*;
 
     #[test]
