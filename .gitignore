@@ -1,0 +1,12 @@
+/target
+**/*.rs.bk
+Cargo.lock.orig
+
+# local browser downloads and capture output
+/chrome
+/chs.zip
+/proofsheet-out
+/out-*
+/det-*
+manifest-*.json
+subject.html
