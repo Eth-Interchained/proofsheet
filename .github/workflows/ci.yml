@@ -1,0 +1,140 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  lint:
+    name: fmt + clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --all-features
+
+  # The unit suite can prove the preset table is internally consistent, but
+  # only a real browser can prove the captures come out the size the stores
+  # demand. This job is the one that would catch a CDP behaviour change.
+  live-capture:
+    name: live capture against real Chromium
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Fetch pinned Chrome for Testing
+        run: |
+          set -euo pipefail
+          V=$(curl -sS https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json \
+              | python3 -c "import sys,json;print(json.load(sys.stdin)['channels']['Stable']['version'])")
+          echo "chrome version: $V"
+          curl -sSL -o chs.zip \
+            "https://storage.googleapis.com/chrome-for-testing-public/$V/linux64/chrome-headless-shell-linux64.zip"
+          python3 -c "import zipfile;zipfile.ZipFile('chs.zip').extractall('chrome')"
+          BIN=$(find chrome -type f -name chrome-headless-shell | head -1)
+          chmod +x "$BIN"
+          echo "PROOFSHEET_CHROME=$PWD/$BIN" >> "$GITHUB_ENV"
+
+      - run: cargo build --release --workspace
+
+      - name: Capture every store preset and assert exact dimensions
+        run: |
+          set -euo pipefail
+          cat > subject.html <<'HTML'
+          <!doctype html><meta charset=utf-8><title>ci</title>
+          <style>body{margin:0;min-height:100vh;background:#0E3B37;color:#F7F5F2;
+          font:16px system-ui;display:grid;place-items:center}</style>
+          <div><p id=v></p><p id=t></p><p id=r></p></div>
+          <script>
+            v.textContent=innerWidth+'x'+innerHeight+'@'+devicePixelRatio;
+            t.textContent=new Date().toISOString();
+            r.textContent=Math.random();
+          </script>
+          HTML
+          for store in apple play; do
+            ./target/release/proofsheet capture \
+              --url "file://$PWD/subject.html" --store "$store" \
+              --out "out-$store" --json > "manifest-$store.json"
+          done
+
+      # A nonzero exit above already fails the build, but assert explicitly so
+      # the log states the invariant rather than implying it.
+      - name: Assert no capture is off-size
+        run: |
+          python3 - <<'PY'
+          import json, glob, sys
+          bad = []
+          total = 0
+          for f in glob.glob('manifest-*.json'):
+              for c in json.load(open(f))['captures']:
+                  total += 1
+                  if not c['exact']:
+                      bad.append((c['device_id'], c['expected'], c['actual']))
+          print(f'{total} captures checked')
+          for d, e, a in bad:
+              print(f'  OFF-SIZE {d}: wanted {e}, got {a}')
+          sys.exit(1 if bad else 0)
+          PY
+
+      - name: Determinism — same seed twice must be byte-identical
+        run: |
+          set -euo pipefail
+          D="--device apple-iphone-6-9-1320 --device play-phone-portrait"
+          ./target/release/proofsheet capture --url "file://$PWD/subject.html" \
+            $D --seed 42 --out det-a --json > det-a.json
+          ./target/release/proofsheet capture --url "file://$PWD/subject.html" \
+            $D --seed 42 --out det-b --json > det-b.json
+          ./target/release/proofsheet capture --url "file://$PWD/subject.html" \
+            --device apple-iphone-6-9-1320 --seed 999 --out det-c --json > det-c.json
+          python3 - <<'PY'
+          import json, sys
+          a = {c['device_id']: c['sha256'] for c in json.load(open('det-a.json'))['captures']}
+          b = {c['device_id']: c['sha256'] for c in json.load(open('det-b.json'))['captures']}
+          c = {x['device_id']: x['sha256'] for x in json.load(open('det-c.json'))['captures']}
+          ok = True
+          for k in a:
+              same = a[k] == b[k]
+              print(f'{k}: same-seed identical = {same}')
+              ok &= same
+          # Negative control: a different seed MUST change the bytes, or the
+          # determinism layer is inert and the test above proves nothing.
+          k = 'apple-iphone-6-9-1320'
+          differs = a[k] != c[k]
+          print(f'{k}: different-seed differs = {differs}')
+          ok &= differs
+          sys.exit(0 if ok else 1)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: captures
+          path: |
+            out-*/**
+            manifest-*.json
+          retention-days: 7
