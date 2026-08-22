@@ -34,6 +34,8 @@ pub mod determinism;
 pub mod device;
 pub mod error;
 pub mod png;
+pub mod progress;
+pub mod run;
 mod ws;
 
 pub use capture::{capture, Capture, CaptureRequest, Stability};
@@ -41,6 +43,8 @@ pub use cdp::{find_browser, Browser, LaunchOptions};
 pub use determinism::Determinism;
 pub use device::{builtin, by_id, for_store, Device, Requirement, Store};
 pub use error::{Error, Result};
+pub use progress::{Collector, DeviceEvent, Outcome, Progress, Silent, Summary, Tally};
+pub use run::{run, DeviceResult, RunOptions, RunReport};
 
 /// The crate version, surfaced so receipts can record which build produced
 /// them.

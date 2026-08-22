@@ -7,10 +7,11 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::time::Duration;
 
 use proofsheet_core::{
-    capture, cdp, device, Browser, CaptureRequest, Determinism, Device, LaunchOptions, Stability,
-    Store, VERSION,
+    cdp, device, progress, run, Determinism, Device, DeviceEvent, Progress, RunOptions, Stability,
+    Store, Summary, VERSION,
 };
 
 const USAGE: &str = "\
@@ -37,6 +38,8 @@ CAPTURE OPTIONS:
     --seed <N>                  Determinism seed (default: 42)
     --locale <TAG>              Locale override (default: en-US)
     --presets <FILE>            Load device table from FILE instead of built-in
+    --fail-fast                 Stop at the first failure
+    --quiet                     Suppress progress output
     --json                      Emit a JSON manifest to stdout
 
 ENVIRONMENT:
@@ -180,6 +183,123 @@ fn cmd_devices(args: &Args) -> Result<(), String> {
     Ok(())
 }
 
+/// Renders run progress to a terminal.
+///
+/// Writes to stderr so `--json` on stdout stays machine-parseable while the
+/// human still sees movement. Redraws in place when attached to a TTY and
+/// falls back to plain lines when piped, because a log full of carriage
+/// returns is worse than no progress at all.
+struct TerminalProgress {
+    tty: bool,
+    quiet: bool,
+    width: usize,
+}
+
+impl TerminalProgress {
+    fn new(quiet: bool) -> Self {
+        TerminalProgress {
+            tty: is_tty(),
+            quiet,
+            width: 24,
+        }
+    }
+
+    fn clear_line(&self) {
+        if self.tty {
+            eprint!("\r\x1b[2K");
+        }
+    }
+}
+
+impl Progress for TerminalProgress {
+    fn run_started(&mut self, total: usize, url: &str) {
+        if self.quiet {
+            return;
+        }
+        eprintln!("capturing {url}");
+        eprintln!("{total} device{}", if total == 1 { "" } else { "s" });
+    }
+
+    fn device_started(&mut self, index: usize, total: usize, device: &Device) {
+        if self.quiet || !self.tty {
+            return;
+        }
+        eprint!(
+            "\r\x1b[2K[{}] {}/{}  {}",
+            progress::bar(index - 1, total, self.width),
+            index,
+            total,
+            device.id
+        );
+    }
+
+    fn device_finished(&mut self, e: &DeviceEvent<'_>) {
+        if self.quiet {
+            return;
+        }
+        self.clear_line();
+        let size = e
+            .capture
+            .map(|c| format!("{}x{}", c.actual.0, c.actual.1))
+            .unwrap_or_else(|| "-".into());
+        let digest = e
+            .capture
+            .map(|c| c.sha256[..16].to_string())
+            .unwrap_or_default();
+        eprintln!(
+            "  {:>3}/{:<3} {:<28} {:>11}  {:<9} {:>7}  {}",
+            e.index,
+            e.total,
+            e.device.id,
+            size,
+            e.outcome.as_str(),
+            progress::human(e.elapsed),
+            digest
+        );
+        if let Some(msg) = e.error {
+            eprintln!("        {msg}");
+        }
+        if let Some(c) = e.capture {
+            if !c.exact {
+                eprintln!(
+                    "        wanted {}x{}, got {}x{}",
+                    c.expected.0, c.expected.1, c.actual.0, c.actual.1
+                );
+            }
+        }
+    }
+
+    fn run_finished(&mut self, summary: Summary, elapsed: Duration) {
+        if self.quiet {
+            return;
+        }
+        self.clear_line();
+        eprintln!(
+            "\n{} exact, {} off-size, {} failed in {}",
+            summary.exact,
+            summary.off_size,
+            summary.failed,
+            progress::human(elapsed)
+        );
+    }
+}
+
+#[cfg(unix)]
+fn is_tty() -> bool {
+    // Avoiding a dependency for one libc call. STDERR_FILENO is 2.
+    extern "C" {
+        fn isatty(fd: i32) -> i32;
+    }
+    unsafe { isatty(2) == 1 }
+}
+
+#[cfg(not(unix))]
+fn is_tty() -> bool {
+    // Conservative on Windows: plain lines always render correctly, whereas
+    // in-place redraws on a non-TTY produce unreadable logs.
+    false
+}
+
 fn cmd_capture(args: &Args) -> Result<bool, String> {
     let url = args
         .one("url")
@@ -196,66 +316,40 @@ fn cmd_capture(args: &Args) -> Result<bool, String> {
     if let Some(l) = args.one("locale") {
         det = det.with_locale(l);
     }
-    let stability = Stability::default();
 
-    let binary = cdp::find_browser(None).map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&out_dir)
-        .map_err(|e| format!("cannot create {}: {e}", out_dir.display()))?;
+    let browser = cdp::find_browser(None).map_err(|e| e.to_string())?;
 
-    let mut results = Vec::new();
-    let mut all_exact = true;
+    let opts = RunOptions {
+        url: url.to_string(),
+        devices: targets,
+        out_dir: out_dir.clone(),
+        determinism: det,
+        stability: Stability::default(),
+        browser,
+        fail_fast: args.has("fail-fast"),
+    };
 
-    for d in &targets {
-        // A fresh browser per device: emulation overrides accumulate on a
-        // session, and a leaked override from a previous device is exactly
-        // the kind of bug that produces a plausible, wrong image.
-        let opts = LaunchOptions::new(&binary);
-        let mut browser = Browser::launch(&opts).map_err(|e| e.to_string())?;
-        let req = CaptureRequest {
-            url,
-            device: d,
-            determinism: &det,
-            stability: &stability,
-        };
-        let (cap, bytes) = capture(&mut browser, &req).map_err(|e| e.to_string())?;
-        let path = out_dir.join(format!("{}.png", d.id));
-        std::fs::write(&path, &bytes)
-            .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
-
-        if !cap.exact {
-            all_exact = false;
-        }
-        if !args.has("json") {
-            println!(
-                "{:<28} {:>11}  {}  {}",
-                cap.device_id,
-                format!("{}x{}", cap.actual.0, cap.actual.1),
-                if cap.exact { "exact " } else { "WRONG " },
-                &cap.sha256[..16]
-            );
-        }
-        results.push(cap);
-    }
+    let mut progress = TerminalProgress::new(args.has("quiet"));
+    let report = run(&opts, &mut progress).map_err(|e| e.to_string())?;
 
     if args.has("json") {
-        let manifest = serde_json::json!({
-            "proofsheet": VERSION,
-            "url": url,
-            "seed": seed,
-            "locale": det.locale,
-            "captures": results,
-        });
         println!(
             "{}",
-            serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?
+            serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?
         );
     } else {
-        println!("\n{} captures -> {}", results.len(), out_dir.display());
-        if !all_exact {
+        println!("{} captures -> {}", report.results.len(), out_dir.display());
+        if report.off_size > 0 {
             println!("SOME CAPTURES ARE THE WRONG SIZE — do not upload these");
         }
+        if report.failed > 0 {
+            println!("{} device(s) failed to capture at all", report.failed);
+        }
+        if report.results.is_empty() {
+            println!("nothing was captured");
+        }
     }
-    Ok(all_exact)
+    Ok(report.ok)
 }
 
 fn main() -> ExitCode {
