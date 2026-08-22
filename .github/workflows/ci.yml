@@ -227,10 +227,16 @@ jobs:
           npx napi build --platform --release
           node test/smoke.mjs
 
+      # The first version of the binding emitted a .d.ts referencing a
+      # ProofsheetReport type that was never declared: fine at runtime,
+      # broken for every TypeScript consumer. This is the guard.
+      #
+      # `-p typescript` is required -- `npx typescript tsc` cannot resolve the
+      # binary, because the package name and the command name differ.
       - name: The generated .d.ts must have no dangling types
         working-directory: crates/proofsheet-node
         run: |
-          npx --yes typescript@5 tsc --noEmit --strict \
+          npx --yes -p typescript@5 tsc --noEmit --strict \
             --skipLibCheck false index.d.ts
 
       - name: Build and test the Python binding
