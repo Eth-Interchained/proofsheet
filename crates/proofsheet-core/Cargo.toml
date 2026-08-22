@@ -8,6 +8,9 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
+# Explicit: the preset table is compiled in with include_str!, so it must be
+# part of the published crate. Being explicit also keeps stray files out.
+include = ["src/**/*", "presets/devices.json", "README.md"]
 
 [dependencies]
 serde.workspace = true

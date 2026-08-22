@@ -179,6 +179,31 @@ jobs:
         with:
           command: sdist
           args: --out dist --manifest-path crates/proofsheet-py/Cargo.toml
+      # The sdist is SOURCE, so it has a packaging boundary the wheels do
+      # not -- and it broke exactly the way the crates.io tarball did:
+      # include_str! reaching outside the crate directory compiles from a
+      # git checkout and then fails for anyone who builds from the sdist.
+      #
+      # pip prefers a wheel, so this only bites platforms without one
+      # (linux-aarch64, musl, FreeBSD) -- which is precisely why it went
+      # unnoticed. Build from the sdist and import it.
+      - name: The sdist must build and import
+        run: |
+          set -euo pipefail
+          SDIST=$(ls dist/*.tar.gz)
+          echo "building from $SDIST"
+          python3 -m venv /tmp/sdistenv
+          /tmp/sdistenv/bin/pip install --upgrade pip >/dev/null
+          # --no-binary forces a real compile from source rather than
+          # silently satisfying the install from a wheel.
+          /tmp/sdistenv/bin/pip install --no-binary :all: "$SDIST"
+          /tmp/sdistenv/bin/python -c "
+          import proofsheet
+          d = proofsheet.devices('apple')
+          assert d, 'no presets -- the table did not make it into the sdist'
+          print(f'  built from sdist and imported, {len(d)} apple presets')
+          "
+
       - uses: actions/upload-artifact@v4
         with:
           name: wheel-sdist
@@ -202,7 +227,10 @@ jobs:
           # time means the tag does not describe what is being published.
           publish() {
             local crate="$1"
-            if cargo publish -p "$crate" --no-verify 2>&1 | tee /tmp/out; then
+            # NOT --no-verify. That flag skips building the packaged crate,
+            # which is exactly how a proofsheet-core that could not compile
+            # (include_str! escaping the crate dir) reached crates.io.
+            if cargo publish -p "$crate" 2>&1 | tee /tmp/out; then
               echo "published $crate"
             elif grep -q "already exists" /tmp/out; then
               echo "$crate already published at this version; continuing"
@@ -232,64 +260,72 @@ jobs:
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org
+      # ONE package, every platform inside it -- the same way nedb-engine
+      # ships. napi's default is optionalDependencies fanned out into a
+      # package per triple, which is npm-idiomatic but puts five entries on
+      # the registry listing for one product. The generated loader already
+      # prefers a local ./proofsheet.<triple>.node over the published
+      # sub-package, so bundling them is enough; no loader changes needed.
+      #
+      # This also deletes `napi prepublish` from the release path, which is
+      # where both the E402 (scoped packages default to private) and the
+      # ENEEDAUTH (.npmrc is not read from parent directories) failures came
+      # from. Fewer moving parts, fewer ways to publish a broken package.
       - uses: actions/download-artifact@v4
         with:
           pattern: node-*
-          path: crates/proofsheet-node/artifacts
-      # `napi artifacts` COPIES addons into npm/<triple>/, it does not create
-      # those directories. Without create-npm-dir first, it fails with a bare
-      # ENOENT naming the destination it could not open -- which reads like a
-      # missing build artifact rather than missing scaffolding. Reproduced
-      # locally against this exact artifact layout before changing anything.
-      - name: Scaffold platform packages and place the addons
+          path: crates/proofsheet-node
+          merge-multiple: true
+
+      - name: Every expected platform must be bundled
+        working-directory: crates/proofsheet-node
+        run: |
+          ls -la *.node
+          python3 - <<'PY'
+          import glob, sys
+          want = {
+              "proofsheet.darwin-arm64.node",
+              "proofsheet.darwin-x64.node",
+              "proofsheet.linux-x64-gnu.node",
+              "proofsheet.win32-x64-msvc.node",
+          }
+          have = set(glob.glob("*.node"))
+          missing = sorted(want - have)
+          for m in missing:
+              print("  MISSING", m)
+          print(f"  {len(want & have)}/{len(want)} platform addons bundled")
+          sys.exit(1 if missing else 0)
+          PY
+
+      # Pack, install the tarball somewhere clean, and require() it. A
+      # package that cannot be installed and loaded must not be published --
+      # every registry check we had said 0.1.1 was fine while it threw
+      # ERR_DLOPEN_FAILED on any Linux older than Ubuntu 24.04.
+      - name: The packed tarball must install and load
         working-directory: crates/proofsheet-node
         run: |
           set -euo pipefail
-          npm install --no-audit --no-fund
-          echo "--- downloaded artifacts ---"
-          find artifacts -type f -name '*.node'
-          npx napi create-npm-dir -t .
-          npx napi artifacts --dir artifacts
-          echo "--- assembled ---"
-          find npm -type f -name '*.node'
-
-      # Publishing a package that silently lost a platform is worse than
-      # failing: the gap only surfaces as an install error on a user's
-      # machine, long after the version is immutable.
-      - name: Every expected platform must be present
-        working-directory: crates/proofsheet-node
-        run: |
-          python3 - <<'PY'
-          import json, pathlib, sys
-
-          pkg = json.load(open("package.json"))
-          triples = pkg["napi"]["triples"]
-          expected = set(triples.get("additional", []))
-          if triples.get("defaults"):
-              expected |= {
-                  "x86_64-apple-darwin",
-                  "x86_64-pc-windows-msvc",
-                  "x86_64-unknown-linux-gnu",
-              }
-
-          found = sorted(p.name for p in pathlib.Path("npm").glob("*/*.node"))
-          print(f"expected {len(expected)} platforms, found {len(found)} addons")
-          for f in found:
-              print("  ", f)
-
-          if len(found) < len(expected):
-              print(f"FAIL: {len(expected) - len(found)} platform(s) missing.")
-              sys.exit(1)
-          PY
+          TARBALL=$(npm pack --silent)
+          echo "packed $TARBALL"
+          VERIFY=$(mktemp -d)
+          cp "$TARBALL" "$VERIFY/"
+          cd "$VERIFY"
+          npm init -y >/dev/null
+          npm install "./$TARBALL" --no-audit --no-fund
+          node -e "
+            const p = require('@interchained/proofsheet');
+            const v = p.version();
+            if (!v) { console.error('version() returned nothing'); process.exit(1); }
+            const d = p.devices('apple');
+            if (!d.length) { console.error('no presets'); process.exit(1); }
+            console.log('  installed and loaded, version', v, '/', d.length, 'apple presets');
+          "
 
       - name: Publish
         working-directory: crates/proofsheet-node
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          set -euo pipefail
-          npx napi prepublish -t npm --skip-gh-release
-          npm publish --access public
+        run: npm publish --access public
 
   publish-pypi:
     name: PyPI

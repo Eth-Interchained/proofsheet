@@ -1,6 +1,6 @@
 {
   "name": "@interchained/proofsheet",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Exact-pixel App Store and Google Play screenshots from a real browser, deterministic and local-first.",
   "keywords": [
     "screenshot",
@@ -30,25 +30,18 @@
   "files": [
     "index.js",
     "index.d.ts",
+    "*.node",
     "README.md"
   ],
   "engines": {
     "node": ">= 18"
   },
   "napi": {
-    "name": "proofsheet",
-    "triples": {
-      "defaults": true,
-      "additional": [
-        "aarch64-apple-darwin"
-      ]
-    }
+    "name": "proofsheet"
   },
   "scripts": {
     "build": "napi build --platform --release",
     "build:debug": "napi build --platform",
-    "artifacts": "napi artifacts",
-    "universal": "napi universal",
     "version": "napi version",
     "test": "node test/smoke.mjs"
   },

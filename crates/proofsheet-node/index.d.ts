@@ -26,6 +26,18 @@ export interface CaptureOptions {
   /** Path to a preset JSON file, replacing the built-in table. */
   presets?: string
 }
+/** What the page reported about itself during a capture. */
+export interface JsEnvironment {
+  innerWidth: number
+  innerHeight: number
+  devicePixelRatio: number
+  touchPoints: number
+  /**
+   * False means the page overrode the layout viewport, which usually means
+   * content negotiation served the wrong layout at the right pixel count.
+   */
+  viewportHonoured: boolean
+}
 /** One image, as JavaScript sees it. */
 export interface JsCapture {
   /** Pixel width the store requires. */
@@ -39,6 +51,11 @@ export interface JsCapture {
   bytes: number
   /** True when actual matches expected exactly. */
   exact: boolean
+  /**
+   * What the page saw. Assert on this as well as the dimensions: a capture
+   * can be exactly the right size and still show the wrong layout.
+   */
+  environment?: JsEnvironment
 }
 /** One device's result, successful or not. */
 export interface JsDeviceResult {

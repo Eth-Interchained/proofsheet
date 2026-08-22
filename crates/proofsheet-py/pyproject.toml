@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "proofsheet"
-version = "0.1.4"
+version = "0.1.5"
 description = "Exact-pixel App Store and Google Play screenshots from a real browser, deterministic and local-first."
 readme = "README.md"
 requires-python = ">=3.8"

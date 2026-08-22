@@ -17,8 +17,13 @@
 //! # Why this is data
 //!
 //! Stores change these numbers without warning. The table lives in
-//! `presets/devices.json` so it can be corrected without cutting a release.
-//! The compiled-in copy is only a fallback.
+//! `crates/proofsheet-core/presets/devices.json` so it can be corrected
+//! without cutting a release, and `--presets` overrides it at runtime.
+//!
+//! It lives INSIDE the crate deliberately. `include_str!` reaching outside
+//! the crate directory compiles locally and then fails for everyone who
+//! installs from crates.io, because `cargo package` only ships files under
+//! the crate root. That shipped once as a crate that could not compile.
 
 use serde::{Deserialize, Serialize};
 
@@ -311,7 +316,7 @@ pub fn parse_presets(json: &str) -> Result<Vec<Device>> {
 
 /// The compiled-in fallback table.
 pub fn builtin() -> Vec<Device> {
-    parse_presets(include_str!("../../../presets/devices.json"))
+    parse_presets(include_str!("../presets/devices.json"))
         .expect("built-in presets must parse; enforced by tests")
 }
 
