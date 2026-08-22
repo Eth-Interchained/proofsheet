@@ -248,6 +248,12 @@ jobs:
   bindings:
     name: node + python bindings, and cross-surface parity
     runs-on: ubuntu-latest
+    # Job-scoped, not step-scoped: the node smoke test, the python smoke test
+    # and the parity check all launch a browser too, and they must find the
+    # SAME managed install. Setting this on the bootstrap step alone would
+    # leave every later step looking in an empty default root.
+    env:
+      PROOFSHEET_HOME: ${{ github.workspace }}/.proofsheet
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -259,20 +265,26 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Fetch pinned Chrome for Testing
-        run: |
-          set -euo pipefail
-          V=$(curl -sS https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json \
-              | python3 -c "import sys,json;print(json.load(sys.stdin)['channels']['Stable']['version'])")
-          curl -sSL -o chs.zip \
-            "https://storage.googleapis.com/chrome-for-testing-public/$V/linux64/chrome-headless-shell-linux64.zip"
-          python3 -c "import zipfile;zipfile.ZipFile('chs.zip').extractall('chrome')"
-          BIN=$(find chrome -type f -name chrome-headless-shell | head -1)
-          chmod +x "$BIN"
-          echo "PROOFSHEET_CHROME=$PWD/$BIN" >> "$GITHUB_ENV"
-
       - name: Build CLI
         run: cargo build --release -p proofsheet
+
+      # Dogfood the installer instead of hand-rolling the same download in
+      # YAML. This is also the only test of the zero-config path a new user
+      # actually walks: no PROOFSHEET_CHROME is exported anywhere in this
+      # job, so everything below must discover the managed browser on its
+      # own. That discovery was broken -- every find_browser call site passed
+      # None, so an installed browser was never looked for.
+      - name: Bootstrap a browser with proofsheet's own installer
+        run: |
+          set -euo pipefail
+          ./target/release/proofsheet install-browser
+          # Prove discovery works with no environment variable set.
+          ./target/release/proofsheet capture \
+            --url https://example.com \
+            --device apple-iphone-6-9-1320 \
+            --out /tmp/bootstrap-check
+          test -f /tmp/bootstrap-check/apple-iphone-6-9-1320.png
+          echo "  zero-config capture works"
 
       - name: Build and test the Node binding
         working-directory: crates/proofsheet-node

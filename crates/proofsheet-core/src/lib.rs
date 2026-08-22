@@ -33,6 +33,7 @@ pub mod cdp;
 pub mod determinism;
 pub mod device;
 pub mod error;
+pub mod install;
 pub mod png;
 pub mod progress;
 pub mod run;
@@ -43,6 +44,7 @@ pub use cdp::{find_browser, Browser, LaunchOptions};
 pub use determinism::Determinism;
 pub use device::{builtin, by_id, for_store, Device, Platform, Requirement, Store};
 pub use error::{Error, Result};
+pub use install::{install_browser, managed_root};
 pub use progress::{Collector, DeviceEvent, Outcome, Progress, Silent, Summary, Tally};
 pub use run::{run, DeviceResult, RunOptions, RunReport};
 

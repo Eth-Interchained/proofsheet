@@ -43,12 +43,20 @@ pub fn find_browser(managed_root: Option<&Path>) -> Result<PathBuf> {
             p.display()
         )));
     }
-    if let Some(root) = managed_root {
-        if root.is_dir() {
-            if let Some(found) = find_in_tree(root, "chrome-headless-shell") {
-                return Ok(found);
-            }
+    // Fall back to the default managed root when the caller does not name
+    // one. Every call site passed None, so a browser installed by
+    // `install-browser` was never actually found -- the install worked and
+    // then the next command still said "no browser".
+    let default_root;
+    let root = match managed_root {
+        Some(r) => r,
+        None => {
+            default_root = crate::install::managed_root();
+            &default_root
         }
+    };
+    if let Some(found) = find_in_managed(root) {
+        return Ok(found);
     }
     for name in CANDIDATES {
         if let Some(p) = which(name) {
@@ -65,6 +73,19 @@ fn which(name: &str) -> Option<PathBuf> {
     std::env::split_paths(&path)
         .map(|d| d.join(name))
         .find(|c| c.is_file())
+}
+
+/// Locate a managed headless shell under `root`, if one is installed.
+pub(crate) fn find_in_managed(root: &Path) -> Option<PathBuf> {
+    if !root.is_dir() {
+        return None;
+    }
+    let name = if cfg!(windows) {
+        "chrome-headless-shell.exe"
+    } else {
+        "chrome-headless-shell"
+    };
+    find_in_tree(root, name)
 }
 
 fn find_in_tree(root: &Path, name: &str) -> Option<PathBuf> {

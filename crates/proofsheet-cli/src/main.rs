@@ -23,6 +23,7 @@ USAGE:
 COMMANDS:
     devices                 List device presets
     capture                 Capture screenshots at exact store dimensions
+    install-browser         Download a pinned Chrome for Testing
     version                 Print version
 
 DEVICES OPTIONS:
@@ -42,8 +43,13 @@ CAPTURE OPTIONS:
     --quiet                     Suppress progress output
     --json                      Emit a JSON manifest to stdout
 
+INSTALL-BROWSER OPTIONS:
+    --version-tag <V>           Pin an exact Chrome for Testing version
+    --force                     Re-download even if one is present
+
 ENVIRONMENT:
     PROOFSHEET_CHROME           Path to a Chromium/Chrome binary
+    PROOFSHEET_HOME             Where install-browser puts it
 ";
 
 struct Args {
@@ -380,6 +386,33 @@ fn cmd_capture(args: &Args) -> Result<bool, String> {
     Ok(report.ok)
 }
 
+/// Download a pinned browser.
+///
+/// This existed as advice in an error message -- "run
+/// `proofsheet install-browser`" -- before it existed as a command, which is
+/// worse than saying nothing.
+fn cmd_install_browser(args: &Args) -> Result<(), String> {
+    let pin = args.one("version-tag").map(str::to_string);
+    let force = args.has("force");
+
+    let root = proofsheet_core::install::managed_root();
+    eprintln!("installing into {}", root.display());
+    if pin.is_none() {
+        eprintln!("resolving the current Chrome for Testing Stable build...");
+    }
+
+    let binary = proofsheet_core::install::install_browser(pin.as_deref(), force)
+        .map_err(|e| e.to_string())?;
+
+    match proofsheet_core::install::installed_version(&binary) {
+        Some(v) => println!("{v}"),
+        None => println!("installed"),
+    }
+    println!("{}", binary.display());
+    eprintln!("\nproofsheet will find this automatically.");
+    Ok(())
+}
+
 fn main() -> ExitCode {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     if argv.is_empty() {
@@ -389,6 +422,7 @@ fn main() -> ExitCode {
     let args = Args::parse(&argv);
     let outcome = match args.command.as_str() {
         "devices" => cmd_devices(&args).map(|_| true),
+        "install-browser" => cmd_install_browser(&args).map(|_| true),
         "capture" => cmd_capture(&args),
         // --version and -V are what people actually type. Accepting only the
         // bare subcommand meant `proofsheet --version` answered

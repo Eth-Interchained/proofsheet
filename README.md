@@ -117,7 +117,21 @@ npm  i -g @interchained/proofsheet # npm      (planned)
 pip  install proofsheet            # PyPI     (planned)
 ```
 
-You also need a Chromium. Point `PROOFSHEET_CHROME` at one, or let proofsheet fetch a pinned [Chrome for Testing](https://googlechromelabs.github.io/chrome-for-testing/) build.
+You also need a Chromium. proofsheet will fetch a pinned
+[Chrome for Testing](https://googlechromelabs.github.io/chrome-for-testing/) build for you:
+
+```bash
+proofsheet install-browser              # current Stable
+proofsheet install-browser --version-tag 152.0.7977.54   # or pin one
+```
+
+It lands under `~/.proofsheet/browser` (`PROOFSHEET_HOME` overrides) and every
+surface — CLI, Node, Python — finds it automatically with no configuration.
+To use a browser you already have, point `PROOFSHEET_CHROME` at it instead.
+
+A pinned build matters more than it sounds: desktop Chrome auto-updates
+underneath you, so the browser producing your screenshots changes without you
+asking and the images churn.
 
 ## Scope, honestly
 

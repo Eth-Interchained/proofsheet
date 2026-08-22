@@ -70,7 +70,15 @@ diffable — you can commit them and review changes as a diff.
 
 ## Browser
 
-proofsheet finds Chrome/Chromium automatically. To pin one:
+No browser on the machine? proofsheet fetches a pinned one:
+
+```
+proofsheet install-browser
+```
+
+It lands in `~/.proofsheet/browser` (`PROOFSHEET_HOME` overrides) and all three
+examples find it with no configuration — none of them sets a browser path. To
+use one you already have:
 
 ```
 export PROOFSHEET_CHROME=/path/to/chrome
