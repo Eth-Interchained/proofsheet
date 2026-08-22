@@ -222,4 +222,43 @@ mod tests {
             "a run that captured nothing reported ok; that is the empty-green bug"
         );
     }
+
+    /// The JSON manifest is a public contract: CI parses it, and so will
+    /// anyone scripting around `--json`.
+    ///
+    /// This test exists because renaming `captures` to `results` silently
+    /// broke the CI consumer, and that only surfaced on the live browser
+    /// job minutes later. A field rename should fail here, in milliseconds.
+    #[test]
+    fn manifest_field_names_are_stable() {
+        let devices: Vec<Device> = crate::device::builtin().into_iter().take(1).collect();
+        let mut c = Collector::default();
+        let report = run(&opts(devices), &mut c).unwrap();
+        let v = serde_json::to_value(&report).unwrap();
+
+        for key in [
+            "proofsheet",
+            "url",
+            "seed",
+            "locale",
+            "exact",
+            "off_size",
+            "failed",
+            "elapsed_ms",
+            "ok",
+            "results",
+        ] {
+            assert!(
+                v.get(key).is_some(),
+                "manifest lost top-level field `{key}`; update its consumers \
+                 (.github/workflows/ci.yml) in the same commit"
+            );
+        }
+        for key in ["device_id", "outcome", "elapsed_ms"] {
+            assert!(
+                v["results"][0].get(key).is_some(),
+                "manifest result lost field `{key}`"
+            );
+        }
+    }
 }

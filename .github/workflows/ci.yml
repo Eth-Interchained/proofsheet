@@ -105,14 +105,26 @@ jobs:
 
           bad, total = [], 0
           for f in manifests:
-              for c in json.load(open(f))['captures']:
+              report = json.load(open(f))
+              for r in report['results']:
                   total += 1
-                  if not c['exact']:
-                      bad.append((c['device_id'], c['expected'], c['actual']))
+                  if r['outcome'] != 'exact':
+                      cap = r.get('capture') or {}
+                      bad.append((
+                          r['device_id'],
+                          r['outcome'],
+                          cap.get('expected'),
+                          cap.get('actual'),
+                          r.get('error'),
+                      ))
+              # The library computes its own verdict; if it and this script
+              # disagree, one of them is wrong and that must be loud.
+              if not report['ok']:
+                  print(f'  {f}: report.ok is false')
 
           print(f'{len(manifests)} manifests, {total} captures checked')
-          for d, e, a in bad:
-              print(f'  OFF-SIZE {d}: wanted {e}, got {a}')
+          for d, outcome, want, got, err in bad:
+              print(f'  {outcome.upper()} {d}: wanted {want}, got {got} {err or ""}')
 
           if total < MIN_EXPECTED:
               print(f'FAIL: only {total} captures, expected >= {MIN_EXPECTED}. '
@@ -133,9 +145,19 @@ jobs:
             --device apple-iphone-6-9-1320 --seed 999 --out det-c --json > det-c.json
           python3 - <<'PY'
           import json, sys
-          a = {c['device_id']: c['sha256'] for c in json.load(open('det-a.json'))['captures']}
-          b = {c['device_id']: c['sha256'] for c in json.load(open('det-b.json'))['captures']}
-          c = {x['device_id']: x['sha256'] for x in json.load(open('det-c.json'))['captures']}
+
+          def digests(path):
+              d = {}
+              for r in json.load(open(path))['results']:
+                  cap = r.get('capture')
+                  if cap:
+                      d[r['device_id']] = cap['sha256']
+              return d
+
+          a, b, c = digests('det-a.json'), digests('det-b.json'), digests('det-c.json')
+          if not a:
+              print('FAIL: det-a produced no captures, so this proves nothing')
+              sys.exit(1)
           ok = True
           for k in a:
               same = a[k] == b[k]
