@@ -67,18 +67,27 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            # Build inside napi-rs's Debian image. A bare ubuntu-latest
+            # runner is glibc 2.39, and an addon linked against it refuses to
+            # load on Ubuntu 22.04 (2.35), Debian 12 (2.36) or Amazon Linux
+            # 2023 (2.34) -- it installs fine and then throws
+            # ERR_DLOPEN_FAILED at require() time. The Python wheels avoided
+            # this only because maturin-action defaults to manylinux.
+            container: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
           - os: macos-latest
             target: x86_64-apple-darwin
           - os: macos-latest
             target: aarch64-apple-darwin
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+    container: ${{ matrix.container }}
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - uses: actions/setup-node@v4
+        if: matrix.container == ''
         with:
           node-version: 20
       - uses: Swatinem/rust-cache@v2
@@ -87,6 +96,32 @@ jobs:
         run: |
           npm install --no-audit --no-fund
           npx napi build --platform --release --target ${{ matrix.target }}
+
+      # An addon that needs a newer glibc than the user has installs cleanly
+      # and then fails at require(). Catch it at build time instead.
+      - name: Linux addon must not require a modern glibc
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        working-directory: crates/proofsheet-node
+        run: |
+          set -euo pipefail
+          NODE_FILE=$(ls *.node)
+          echo "checking $NODE_FILE"
+          MAXV=$(objdump -T "$NODE_FILE" | grep -o 'GLIBC_[0-9.]*' \
+                 | sed 's/GLIBC_//' | sort -V | tail -1)
+          echo "highest glibc symbol required: $MAXV"
+          # 2.28 = Debian 10 / RHEL 8. Anything above 2.31 excludes distros
+          # that are still widely deployed.
+          python3 - "$MAXV" <<'PY'
+          import sys
+          got = tuple(int(x) for x in sys.argv[1].split('.'))
+          ceiling = (2, 31)
+          if got > ceiling:
+              print(f"FAIL: addon requires glibc {sys.argv[1]}, ceiling is "
+                    f"{'.'.join(map(str, ceiling))}. It will not load on "
+                    "Ubuntu 22.04, Debian 12 or Amazon Linux 2023.")
+              sys.exit(1)
+          print("ok: within the glibc ceiling")
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: node-${{ matrix.target }}

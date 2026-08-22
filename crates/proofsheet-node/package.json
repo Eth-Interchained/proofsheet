@@ -1,6 +1,6 @@
 {
   "name": "@interchained/proofsheet",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Exact-pixel App Store and Google Play screenshots from a real browser, deterministic and local-first.",
   "keywords": [
     "screenshot",
@@ -48,7 +48,6 @@
     "build": "napi build --platform --release",
     "build:debug": "napi build --platform",
     "artifacts": "napi artifacts",
-    "prepublishOnly": "napi prepublish -t npm",
     "universal": "napi universal",
     "version": "napi version",
     "test": "node test/smoke.mjs"
@@ -56,5 +55,8 @@
   "devDependencies": {
     "@napi-rs/cli": "^2.18.4"
   },
-  "funding": "https://interchained.org"
+  "funding": "https://interchained.org",
+  "publishConfig": {
+    "access": "public"
+  }
 }
