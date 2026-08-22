@@ -74,6 +74,10 @@ jobs:
           set -euo pipefail
           cat > subject.html <<'HTML'
           <!doctype html><meta charset=utf-8><title>ci</title>
+          <!-- A real mobile-ready page declares this. Without it Chrome uses
+               the legacy 980px layout viewport, and viewport_honoured is
+               correctly false. -->
+          <meta name="viewport" content="width=device-width, initial-scale=1">
           <style>body{margin:0;min-height:100vh;background:#0E3B37;color:#F7F5F2;
           font:16px system-ui;display:grid;place-items:center}</style>
           <div><p id=v></p><p id=t></p><p id=r></p></div>
