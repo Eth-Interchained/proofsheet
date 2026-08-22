@@ -321,3 +321,54 @@ jobs:
             ./target/release/proofsheet \
             ./crates/proofsheet-node \
             "file://$PWD/subject.html"
+
+  examples:
+    name: examples still build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: Swatinem/rust-cache@v2
+
+      # The examples are documentation that executes, so they rot exactly
+      # like documentation -- silently, and only for new users. They build
+      # against the PUBLISHED packages, so this also catches a release that
+      # shipped an API the examples relied on.
+      - name: Rust example compiles against the published crate
+        working-directory: examples/rust
+        run: cargo build --release
+
+      - name: Node example loads and its API exists
+        working-directory: examples/node
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          node -e "
+            const p = require('@interchained/proofsheet');
+            for (const fn of ['capture', 'devices', 'version', 'findBrowser']) {
+              if (typeof p[fn] !== 'function') {
+                throw new Error(fn + ' missing from the published package');
+              }
+            }
+            console.log('  node API present, proofsheet', p.version());
+          "
+          node --check shots.js
+
+      - name: Python example parses and its API exists
+        working-directory: examples/python
+        run: |
+          set -euo pipefail
+          pip install -r requirements.txt
+          python -c "
+          import proofsheet
+          for name in ('capture', 'devices', 'find_browser', 'Environment'):
+              assert hasattr(proofsheet, name), f'{name} missing from the published package'
+          print('  python API present, proofsheet', proofsheet.__version__)
+          "
+          python -m py_compile shots.py

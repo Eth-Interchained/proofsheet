@@ -29,6 +29,7 @@ from . import _native
 
 __all__ = [
     "Capture",
+    "Environment",
     "DeviceResult",
     "Report",
     "Device",
@@ -73,6 +74,23 @@ class Device:
 
 
 @dataclass(frozen=True)
+class Environment:
+    """What the page reported about itself during a capture.
+
+    Assert on this as well as the dimensions. A capture can be exactly the
+    size the store requires and still show the wrong thing: if the page
+    overrides the layout viewport, you get the desktop layout scaled into a
+    phone-sized frame. ``viewport_honoured`` is how you catch that.
+    """
+
+    inner_width: int
+    inner_height: int
+    device_pixel_ratio: int
+    touch_points: int
+    viewport_honoured: bool
+
+
+@dataclass(frozen=True)
 class Capture:
     """One produced image."""
 
@@ -81,6 +99,7 @@ class Capture:
     sha256: str
     bytes: int
     exact: bool
+    environment: Optional[Environment] = None
 
 
 @dataclass(frozen=True)
@@ -171,6 +190,11 @@ def _report(d: dict) -> Report:
                         sha256=cap["sha256"],
                         bytes=cap["bytes"],
                         exact=cap["exact"],
+                        environment=(
+                            Environment(**cap["environment"])
+                            if cap.get("environment")
+                            else None
+                        ),
                     )
                     if cap
                     else None

@@ -1,4 +1,7 @@
 [workspace]
+# The examples build against the PUBLISHED crates, exactly as a user
+# would, so they must not be workspace members resolving to local paths.
+exclude = ["examples/rust"]
 resolver = "2"
 members = [
     "crates/proofsheet-core",
@@ -8,7 +11,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 rust-version = "1.82"
 license = "BUSL-1.1"

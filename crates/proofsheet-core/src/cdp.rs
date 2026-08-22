@@ -26,8 +26,15 @@ const CANDIDATES: &[&str] = &[
 /// managed download, then anything on `PATH`. Explicit beats implicit, and a
 /// pinned local build beats whatever the machine happens to have.
 pub fn find_browser(managed_root: Option<&Path>) -> Result<PathBuf> {
-    if let Ok(p) = std::env::var("PROOFSHEET_CHROME") {
-        let p = PathBuf::from(p);
+    // Empty means unset. `export PROOFSHEET_CHROME=$(which chrome)` on a box
+    // without chrome sets it to "", and env::var happily returns Ok(""),
+    // which produced the nonsense "points at , which is not a file" instead
+    // of falling through to discovery.
+    if let Some(p) = std::env::var("PROOFSHEET_CHROME")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+    {
+        let p = PathBuf::from(p.trim());
         if p.is_file() {
             return Ok(p);
         }
@@ -331,6 +338,28 @@ fn find_subslice(hay: &[u8], needle: &[u8]) -> Option<usize> {
         return None;
     }
     hay.windows(needle.len()).position(|w| w == needle)
+}
+
+#[cfg(test)]
+mod env_tests {
+    /// An empty PROOFSHEET_CHROME must fall through to discovery rather than
+    /// being treated as a path. `export PROOFSHEET_CHROME=$(which chrome)` on
+    /// a machine without chrome sets it to "", and the old code reported
+    /// "PROOFSHEET_CHROME points at , which is not a file".
+    #[test]
+    fn empty_env_var_is_not_a_path() {
+        let raw = Some(String::new());
+        let kept = raw.filter(|v: &String| !v.trim().is_empty());
+        assert!(kept.is_none(), "empty string must be discarded");
+
+        let blank = Some("   ".to_string()).filter(|v: &String| !v.trim().is_empty());
+        assert!(blank.is_none(), "whitespace-only must be discarded");
+
+        let real = Some(" /usr/bin/chrome ".to_string())
+            .filter(|v: &String| !v.trim().is_empty())
+            .map(|v| v.trim().to_string());
+        assert_eq!(real.as_deref(), Some("/usr/bin/chrome"), "real path survives, trimmed");
+    }
 }
 
 #[cfg(test)]

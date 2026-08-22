@@ -1,0 +1,8 @@
+{
+  "name": "proofsheet-example-node",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Capture a site at every App Store and Google Play size.",
+  "scripts": { "shots": "node shots.js" },
+  "dependencies": { "@interchained/proofsheet": "^0.1" }
+}

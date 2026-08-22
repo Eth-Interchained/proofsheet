@@ -1,0 +1,9 @@
+[package]
+name = "proofsheet-example"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# Use the published crate, exactly as a user would.
+proofsheet-core = "0.1"
