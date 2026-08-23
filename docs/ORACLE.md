@@ -267,6 +267,36 @@ the human is released to find the next unknown class
 Automation preserves each discovery. It never protects against the next
 unknown assumption — that is what the human at the boundary is for.
 
+## Challenger — a later component, deliberately not started
+
+Oracle evaluates evidence. A **Challenger** would search for counterevidence:
+it does not judge the artifact, it systematically generates ways the
+artifact's claims could be false.
+
+Feed it claim types, platform differences, historical incidents from
+[RELEASE-DISCIPLINE.md](RELEASE-DISCIPLINE.md), attack taxonomies, mutation
+operators, and the public installation paths. Keep its context **independent
+of the implementation narrative** wherever possible — that independence is the
+entire value, and sharing the narrative destroys it.
+
+Measure it by **novel failing fixtures produced**, never by how convincing its
+review reads. A Challenger that writes persuasive critiques and finds nothing
+is the same failure as a green check that cannot turn red.
+
+```
+proofsheet  performs the work
+Oracle      evaluates evidence
+Challenger  searches for counterevidence
+CI          preserves what reality taught them
+humans      supply intent, and genuinely novel pressure
+```
+
+This is recorded, not scheduled. The honest reason: `docs/ORACLE.md` is
+already 300 lines of design against ~40 lines of shipped behaviour change, and
+Layer 1 does not exist yet. Writing a fourth component before implementing the
+first would be the exact failure this document warns about — plausible
+structure standing in for working machinery.
+
 ## Credit
 
 This design is substantially the work of **the Oracle**, in reply to a letter
