@@ -247,7 +247,7 @@ dependencies = [
 
 [[package]]
 name = "proofsheet"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "proofsheet-core",
  "serde",
@@ -256,7 +256,7 @@ dependencies = [
 
 [[package]]
 name = "proofsheet-core"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "base64",
  "getrandom",
@@ -269,7 +269,7 @@ dependencies = [
 
 [[package]]
 name = "proofsheet-node"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "napi",
  "napi-build",
@@ -281,7 +281,7 @@ dependencies = [
 
 [[package]]
 name = "proofsheet-py"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "proofsheet-core",
  "pyo3",

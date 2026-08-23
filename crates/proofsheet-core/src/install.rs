@@ -28,22 +28,51 @@
 //!
 //! - tools are detected up front, before a 100MB download ([`preflight`])
 //! - the archive lands in a temp path and a partial install is cleaned up
-//! - the archive's SHA-256 is recorded, and re-verified on reinstall
+//! - the archive's SHA-256 is recorded for continuity checking
 //! - the installed binary must execute and report a version
 //! - the exact external commands are named in every error
 //!
 //! Measured failure data across clean OS images decides whether it graduates
 //! or is replaced by a TLS + inflate dependency. Not taste.
 //!
-//! # On verification
+//! # Continuity checking, which is NOT a verified download
 //!
 //! Chrome for Testing publishes no checksums -- its manifest carries only
-//! `platform` and `url` -- so there is no upstream hash to check against.
-//! What is possible is trust-on-first-use: record the SHA-256 of what was
-//! downloaded next to the install, and verify it if the same version is
-//! fetched again. That does not protect the first download beyond TLS, and
-//! this comment exists so nobody later mistakes it for something stronger.
-//! It does make a pinned version reproducible across a team and CI.
+//! `platform` and `url` -- so there is no upstream hash to authenticate
+//! against. What is possible is trust-on-first-use: record the SHA-256 of
+//! what was downloaded, and compare if the same version is fetched again.
+//!
+//! Call it continuity checking or TOFU integrity. Never call it a verified
+//! download. It detects a pinned version's archive CHANGING after first
+//! observation. It cannot authenticate the first archive by any means beyond
+//! TLS, and no amount of hashing later makes the first fetch trustworthy.
+//! This paragraph exists so nobody reading the code in a year upgrades the
+//! claim by accident.
+//!
+//! What it is genuinely good for: a pinned version is reproducible across a
+//! team and CI, and a silent upstream replacement becomes loud.
+//!
+//! # Archive safety, bounded
+//!
+//! Extraction is delegated, so extractor behaviour is part of this crate's
+//! compatibility surface. Tested adversarially on Linux with unzip 6.0 and
+//! CPython 3.9 zipfile:
+//!
+//! | vector | unzip | python3 zipfile |
+//! |---|---|---|
+//! | `../` traversal | stripped | sanitised |
+//! | absolute path entry | contained | contained |
+//! | backslash separators | contained | contained |
+//! | symlink escape | link created, write through it REFUSED | symlinks not restored, so vector absent |
+//!
+//! Note the last row: those are different guarantees. unzip defended against
+//! an attack it genuinely attempted; CPython never creates the symlink, so
+//! the vector does not exist there rather than being blocked.
+//!
+//! This does NOT establish safety for every extractor version, platform, or
+//! archive construction -- nested archives, hard links and other zipfile
+//! implementations are untested. It is evidence for the tested matrix, not a
+//! universal guarantee.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -291,8 +320,9 @@ pub fn install_browser(version: Option<&str>, force: bool) -> Result<PathBuf> {
         match std::fs::read_to_string(&record) {
             Ok(prev) if prev.trim() != digest => {
                 return Err(Error::Browser(format!(
-                    "the archive for pinned version {version} does not match \
-                     what was recorded for it.\n  recorded: {}\n  now:      \
+                    "continuity check failed: the archive for pinned version \
+                     {version} is not the one recorded on first \
+                     download.\n  recorded: {}\n  now:      \
                      {digest}\nRefusing to install. Remove {} to accept the \
                      new archive.",
                     prev.trim(),

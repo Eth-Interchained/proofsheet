@@ -62,11 +62,54 @@ Oracle must not return `correct: true`. It returns an evidence-backed verdict:
 }
 ```
 
-Verdict space: `accept`, `reject`, `review`, `indeterminate`.
+Verdict space, sharpened — the distinction between the last two carries most
+of the operational weight:
+
+| verdict | means |
+|---|---|
+| `accept` | affirmative evidence satisfies the configured policy |
+| `reject` | a hard invariant or explicit contract was violated |
+| `review` | the evidence is valid, but **intent** is required |
+| `indeterminate` | Oracle could not obtain **trustworthy evidence** |
+
+A capture that might intentionally use desktop composition is `review`. A
+capture whose telemetry failed, whose page never stabilised, or whose
+environment Oracle cannot model is `indeterminate`. Therefore:
+
+- rising `indeterminate` is an **operational defect in Oracle**
+- rising `review` is an **automation-coverage gap**
+- a false `accept` is a **correctness failure**
+- a false `reject` is an **overreach failure**
 
 **An honest oracle must be allowed to abstain.** Without `indeterminate`,
-uncertainty gets laundered into authority — which is the same failure as a
-green check that was never shown capable of turning red.
+uncertainty gets laundered into authority — the same failure as a green check
+never shown capable of turning red.
+
+### Abstention is metered, not free
+
+Unpriced abstention is epistemic bankruptcy: perfectly honest, perfectly
+useless. An Oracle returning `indeterminate` on 60% of captures has relocated
+100% of the judgement to the human while keeping the appearance of a system.
+
+But do not optimise the raw abstention rate either — that pressures Oracle to
+manufacture confidence. Measure two properties **together**:
+
+- **Coverage** — the share of captures Oracle decides automatically
+- **Selective risk** — the error rate *among those automatic decisions*
+
+That is a risk–coverage curve. Increasing coverage is valuable only while
+error stays within policy.
+
+Cost ordering, with the weights themselves belonging to policy — a marketing
+screenshot and a medical-device screenshot must not share a threshold:
+
+```
+false accept  >  false reject  >  review  >  correct decision
+indeterminate = operational failure cost
+```
+
+High abstention is acceptable early **only if it is visible, measured, and
+trending down**. It is scaffolding, not a permanent defence.
 
 ## Layer 1 — hard invariants
 
@@ -177,6 +220,52 @@ Accepted judgements become regression knowledge
 Worthy of the name because it does not pretend the uncertainty disappeared.
 
 ---
+
+## Independence of acceptance evidence
+
+The rule that explains all the others, in its corrected form:
+
+> **Acceptance evidence must include at least one falsification source whose
+> origin is independent of the implementation assumptions.**
+
+Environmental cleanliness is not independence. A clean room removes shared
+state; it does not remove shared assumptions. A checklist written by the
+implementer verifies execution while remaining entirely inside the
+implementer's model of the problem.
+
+Qualifying sources:
+
+- actual use by someone who did not implement the change
+- a failure reported by a real consumer, preserved as a regression
+- an external specification or conformance suite
+- a failing fixture established **before** implementation
+- a reviewer given the artifact and expected behaviour, but not the
+  implementation's explanatory narrative
+- mutation testing, fuzzing, or generated counterexamples the author did not
+  individually select
+- a differently prompted model whose task is to **falsify** the claim rather
+  than understand or defend the implementation
+
+"A different model" is not automatically independent. Two models given the
+same narrative inherit the same framing and reproduce the same blind spot.
+Independence is a property of the challenge's origin, not of who executes it.
+
+### The scalable loop
+
+A human at the boundary should not stay load-bearing for the same fact twice:
+
+```
+independent use discovers a failure class
+      ↓
+failure becomes a reproducible fixture
+      ↓
+fixture becomes an automated gate
+      ↓
+the human is released to find the next unknown class
+```
+
+Automation preserves each discovery. It never protects against the next
+unknown assumption — that is what the human at the boundary is for.
 
 ## Credit
 

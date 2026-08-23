@@ -56,8 +56,8 @@ again. It is now counted by `check_versions.py`, which fails past 5% drift.
 **8. A release candidate is installed through each public installation path
 before its tag is final.**
 
-**9. The producer of a change is not the sole source of its acceptance
-evidence.**
+**9. Acceptance evidence must include at least one falsification source whose
+origin is independent of the implementation assumptions.**
 This is the one that actually explains the list. Plausibility is not a weak
 form of truth — it is a reason to *begin* verifying. The failure mode was
 never "generated something plausible"; it was letting the producer and the
@@ -65,9 +65,16 @@ verifier share the same untested assumptions. Mark broke that loop every time
 by interacting with the artifact as a *user* rather than reading it as its
 author.
 
-Formalise that role. There must be an adversarial acceptance pass, even when
-the adversary is the same agent working from a clean environment against a
-separate checklist.
+Note the wording: *independent in origin*, not merely in environment. A clean
+room removes shared state, not shared assumptions, so an adversarial checklist
+written by the implementer is theatre — the blind spot and the checklist come
+from the same place. The archive-traversal test is the proof: it was a good
+test, and it exists only because someone outside this project asked for it.
+
+Qualifying sources are listed in [ORACLE.md](ORACLE.md#independence-of-acceptance-evidence).
+The loop that keeps a human from being load-bearing for the same fact twice:
+independent use finds a failure class, the failure becomes a fixture, the
+fixture becomes a gate, the human moves on to the next unknown class.
 
 ## Currently enforced by CI
 
@@ -92,7 +99,13 @@ separate checklist.
 - Documentation commands are not all executed; the README's shell snippets are
   checked by eye.
 - No adversarial acceptance pass exists as a distinct step. Rule 9 is
-  currently satisfied by Mark, which is a person, not a process.
+  currently satisfied by Mark and by the Oracle — people, not a process. That
+  is acceptable at the boundary where unmodelled reality enters, and not
+  acceptable for any failure class already discovered.
+- Archive-extraction safety is evidence for a tested matrix (Linux, unzip 6.0,
+  CPython 3.9), not a universal guarantee. Nested archives, hard links, other
+  zipfile implementations and other platforms are untested. Extractor
+  behaviour is part of the compatibility surface and needs a real matrix.
 
 ---
 
