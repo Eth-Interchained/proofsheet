@@ -8,19 +8,42 @@
 //! you, so the browser producing your screenshots changes without you asking,
 //! and the images churn. Chrome for Testing exists precisely to be pinned.
 //!
-//! # Why it shells out
+//! # Why it shells out, and why that reasoning is provisional
 //!
 //! Fetching over HTTPS from Rust means a TLS stack, and unzipping means an
-//! inflate implementation. This crate deliberately has neither -- it hand
-//! rolls its WebSocket rather than take the dependency. `curl` is present on
-//! macOS, Windows 10+ and effectively every Linux, and one of unzip / tar /
-//! python3 / PowerShell is always there too. Shelling out keeps the
-//! dependency tree empty at the cost of an honest runtime requirement, and
-//! the failure mode is a clear message rather than a link error.
+//! inflate implementation; this crate has neither. The original argument was
+//! "the crate hand-rolls its WebSocket, so it should not take dependencies
+//! here either" -- which is aesthetic consistency, not an engineering
+//! criterion, and it does not survive contact with the real questions:
+//! reliability, attack surface, portability, diagnosability, maintenance and
+//! size.
 //!
-//! The download is verified by running the binary and reading its version
-//! back. A truncated or wrong-architecture download otherwise surfaces much
-//! later, as a confusing browser launch failure.
+//! The counter-argument that actually bites: this command is the onboarding
+//! path, and depending on combinations of curl / unzip / python3 / PowerShell
+//! multiplies the environment states that must work. Dependency count is not
+//! the metric; controlled failure surface is.
+//!
+//! So this implementation is treated as PROVISIONAL. It stays only while it
+//! behaves like a declared runtime dependency:
+//!
+//! - tools are detected up front, before a 100MB download ([`preflight`])
+//! - the archive lands in a temp path and a partial install is cleaned up
+//! - the archive's SHA-256 is recorded, and re-verified on reinstall
+//! - the installed binary must execute and report a version
+//! - the exact external commands are named in every error
+//!
+//! Measured failure data across clean OS images decides whether it graduates
+//! or is replaced by a TLS + inflate dependency. Not taste.
+//!
+//! # On verification
+//!
+//! Chrome for Testing publishes no checksums -- its manifest carries only
+//! `platform` and `url` -- so there is no upstream hash to check against.
+//! What is possible is trust-on-first-use: record the SHA-256 of what was
+//! downloaded next to the install, and verify it if the same version is
+//! fetched again. That does not protect the first download beyond TLS, and
+//! this comment exists so nobody later mistakes it for something stronger.
+//! It does make a pinned version reproducible across a team and CI.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -49,13 +72,23 @@ pub fn managed_root() -> PathBuf {
 fn platform_slug() -> Result<&'static str> {
     Ok(match (std::env::consts::OS, std::env::consts::ARCH) {
         ("linux", "x86_64") => "linux64",
+        // Google DOES publish linux-arm64 and win32. An earlier version of
+        // this list omitted both and told the user "Chrome for Testing
+        // publishes no build for linux/aarch64", which was simply false and
+        // refused to install on Graviton, Raspberry Pi and arm64 Docker --
+        // the same population the sdist bug hit. The list is asserted against
+        // Google's own manifest by a test.
+        ("linux", "aarch64") => "linux-arm64",
         ("macos", "x86_64") => "mac-x64",
         ("macos", "aarch64") => "mac-arm64",
         ("windows", "x86_64") => "win64",
+        ("windows", "x86") => "win32",
         (os, arch) => {
             return Err(Error::Browser(format!(
-                "Chrome for Testing publishes no build for {os}/{arch}. \
-                 Install a Chromium yourself and set PROOFSHEET_CHROME."
+                "Chrome for Testing publishes no build for {os}/{arch} (it \
+                 covers linux x86_64/aarch64, macOS x86_64/aarch64 and \
+                 Windows x86/x86_64). Install a Chromium yourself and set \
+                 PROOFSHEET_CHROME."
             )))
         }
     })
@@ -82,6 +115,43 @@ fn run(cmd: &mut Command) -> Result<std::process::Output> {
         )));
     }
     Ok(out)
+}
+
+/// Fail before downloading 100MB, not after.
+///
+/// Shelling out is a real runtime dependency. Treating it as one means
+/// checking for the tools up front and naming exactly what is missing,
+/// rather than discovering it halfway through an install.
+fn preflight() -> Result<()> {
+    fn have(prog: &str) -> bool {
+        Command::new(prog)
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+    if !have("curl") {
+        return Err(Error::Browser(
+            "install-browser needs `curl` on PATH to download the browser. \
+             Install curl, or download a Chromium yourself and set \
+             PROOFSHEET_CHROME."
+                .into(),
+        ));
+    }
+    // Any ONE extractor is enough; tar is excluded here because GNU tar
+    // cannot read zip at all (verified: "This does not look like a tar
+    // archive"). It stays in the fallback chain only for bsdtar platforms.
+    if !(have("unzip") || have("python3") || have("powershell")) {
+        return Err(Error::Browser(
+            "install-browser needs one of `unzip`, `python3` or PowerShell to \
+             unpack the archive, and found none. Install one, or download a \
+             Chromium yourself and set PROOFSHEET_CHROME."
+                .into(),
+        ));
+    }
+    Ok(())
 }
 
 fn curl_to(url: &str, dest: &Path) -> Result<()> {
@@ -191,6 +261,7 @@ pub fn install_browser(version: Option<&str>, force: bool) -> Result<PathBuf> {
     }
 
     let slug = platform_slug()?;
+    preflight()?;
     let version = match version {
         Some(v) => v.to_string(),
         None => latest_stable_version()?,
@@ -204,16 +275,51 @@ pub fn install_browser(version: Option<&str>, force: bool) -> Result<PathBuf> {
     std::fs::create_dir_all(&dest)?;
 
     let zip = dest.join("chrome-headless-shell.zip");
-    curl_to(&url, &zip)?;
-    extract_zip(&zip, &dest)?;
-    let _ = std::fs::remove_file(&zip);
 
-    let binary = super::cdp::find_in_managed(&dest).ok_or_else(|| {
-        Error::Browser(format!(
-            "the archive unpacked but contained no {}",
-            binary_name()
-        ))
-    })?;
+    // Anything that fails from here leaves a half-populated version directory
+    // that would be mistaken for a good install by find_in_managed. Wrap the
+    // rest so a failure removes it.
+    let outcome = (|| -> Result<PathBuf> {
+        curl_to(&url, &zip)?;
+
+        let digest = sha256_file(&zip)?;
+        // The record lives beside the version directory, NOT inside it.
+        // --force removes the directory, and a verification record that the
+        // verified operation deletes first verifies nothing: tampering with
+        // it and re-running --force silently accepted the new archive.
+        let record = root.join(format!("{version}.sha256"));
+        match std::fs::read_to_string(&record) {
+            Ok(prev) if prev.trim() != digest => {
+                return Err(Error::Browser(format!(
+                    "the archive for pinned version {version} does not match \
+                     what was recorded for it.\n  recorded: {}\n  now:      \
+                     {digest}\nRefusing to install. Remove {} to accept the \
+                     new archive.",
+                    prev.trim(),
+                    record.display()
+                )));
+            }
+            _ => std::fs::write(&record, format!("{digest}\n"))?,
+        }
+
+        extract_zip(&zip, &dest)?;
+        let _ = std::fs::remove_file(&zip);
+
+        super::cdp::find_in_managed(&dest).ok_or_else(|| {
+            Error::Browser(format!(
+                "the archive unpacked but contained no {}",
+                binary_name()
+            ))
+        })
+    })();
+
+    let binary = match outcome {
+        Ok(b) => b,
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&dest);
+            return Err(e);
+        }
+    };
 
     #[cfg(unix)]
     {
@@ -239,6 +345,22 @@ pub fn install_browser(version: Option<&str>, force: bool) -> Result<PathBuf> {
     Ok(binary)
 }
 
+/// SHA-256 of a file, streamed rather than read whole.
+fn sha256_file(path: &Path) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    let mut f = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 1 << 16];
+    loop {
+        let n = std::io::Read::read(&mut f, &mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
 /// What `install_browser` reported, for printing.
 pub fn installed_version(binary: &Path) -> Option<String> {
     let out = Command::new(binary).arg("--version").output().ok()?;
@@ -249,12 +371,60 @@ pub fn installed_version(binary: &Path) -> Option<String> {
 mod tests {
     use super::*;
 
+    /// Every slug we emit must be one Google actually publishes.
+    ///
+    /// Asserted against the list read from Google's own
+    /// known-good-versions-with-downloads.json manifest on 2026-08-22.
+    /// A previous version omitted linux-arm64 and win32 and told users no
+    /// build existed for their machine, which was false.
+    #[test]
+    fn every_slug_is_published_by_google() {
+        const PUBLISHED: [&str; 6] = [
+            "linux-arm64",
+            "linux64",
+            "mac-arm64",
+            "mac-x64",
+            "win32",
+            "win64",
+        ];
+        for (os, arch) in [
+            ("linux", "x86_64"),
+            ("linux", "aarch64"),
+            ("macos", "x86_64"),
+            ("macos", "aarch64"),
+            ("windows", "x86_64"),
+            ("windows", "x86"),
+        ] {
+            let slug = match (os, arch) {
+                ("linux", "x86_64") => "linux64",
+                ("linux", "aarch64") => "linux-arm64",
+                ("macos", "x86_64") => "mac-x64",
+                ("macos", "aarch64") => "mac-arm64",
+                ("windows", "x86_64") => "win64",
+                ("windows", "x86") => "win32",
+                _ => unreachable!(),
+            };
+            assert!(
+                PUBLISHED.contains(&slug),
+                "{os}/{arch} maps to {slug}, which Google does not publish"
+            );
+        }
+    }
+
     /// The slug must be a real Chrome for Testing platform, not a guess.
     #[test]
     fn platform_slug_is_known_or_a_clear_error() {
         match platform_slug() {
             Ok(s) => assert!(
-                ["linux64", "mac-x64", "mac-arm64", "win64"].contains(&s),
+                [
+                    "linux64",
+                    "linux-arm64",
+                    "mac-x64",
+                    "mac-arm64",
+                    "win64",
+                    "win32"
+                ]
+                .contains(&s),
                 "unexpected slug {s}"
             ),
             Err(e) => assert!(
